@@ -8,6 +8,19 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import random
 
+import json
+
+def load_active_channels():
+    try:
+        with open("active_channels.json", "r") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+def save_active_channels():
+    with open("active_channels.json", "w") as f:
+        json.dump(list(active_channels), f)
+
 # ==============================
 # Load environment variables
 # ==============================
