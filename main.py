@@ -1,174 +1,223 @@
 from keep_alive import keep_alive
 keep_alive()
 
+# main.py (upgraded)
 import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import google.generativeai as genai
-import random
+import logging
+import asyncio
 
-import json
+# local modules (you must upload these two files)
+from ai_helper import ask_ai
+import ticket_manager as tm
 
-def load_active_channels():
-    try:
-        with open("active_channels.json", "r") as f:
-            return set(json.load(f))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return set()
-
-def save_active_channels():
-    with open("active_channels.json", "w") as f:
-        json.dump(list(active_channels), f)
-
-# ==============================
-# Load environment variables
-# ==============================
+# load .env locally (Render uses env vars)
 load_dotenv()
-DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not DISCORD_BOT_TOKEN:
-    print("❌ Error: DISCORD_BOT_TOKEN not found in .env file!")
-    exit(1)
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("discord_bot")
 
-if not GEMINI_API_KEY:
-    print("❌ Error: GEMINI_API_KEY not found in .env file!")
-    exit(1)
+# Config
+DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")  # checked inside ai_helper
+ADMIN_ROLE_NAME = "Admin - Ticket Support"   # exact role name to ping
+SYSTEM_PROMPT = """You are a professional customer support AI for a gambling/betting platform.
+Rules:
+- ALWAYS respond in ENGLISH only.
+- Keep replies concise and professional.
+- If user asks for something you cannot do, instruct to escalate to humans.
+- If the issue is about account security, payments, or terms and conditions, escalate to admins.
+"""
 
-# ==============================
-# Configure Gemini API
-# ==============================
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel("models/gemini-2.5-flash")
+# prefix for ticket commands
+PREFIX = "!t "
 
-# ==============================
-# Discord bot setup
-# ==============================
+if not DISCORD_TOKEN:
+    logger.error("DISCORD_BOT_TOKEN missing in environment. Exiting.")
+    raise SystemExit("DISCORD_BOT_TOKEN not set")
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="p ", intents=intents)
+bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
-conversation_history = {}
-active_channels = set()
+# load persisted sets
+active_channels = tm.load_active_channels()
+paused_channels = tm.load_paused_channels()
 
-SYSTEM_PROMPT = """You are a professional customer support AI for a gambling/betting platform. 
-Your role:
-- ALWAYS respond in ENGLISH only
-- Be clear, helpful, and concise
-- Keep responses professional and relevant
-- End resolved issues with a short friendly message
-"""
+# in-memory cache for quick access (persisted on change)
+conversation_locks = {}  # channel_id -> asyncio.Lock()
 
-# ==============================
-# Events
-# ==============================
+def get_lock(channel_id: int):
+    if channel_id not in conversation_locks:
+        conversation_locks[channel_id] = asyncio.Lock()
+    return conversation_locks[channel_id]
+
 @bot.event
 async def on_ready():
+    logger.info(f"Bot is ready. Logged in as {bot.user} (ID {bot.user.id})")
     print(f"✅ Bot is ready! Logged in as {bot.user}")
 
+# Helper: find admin role mention string
+def admin_mention(guild: discord.Guild):
+    role = discord.utils.get(guild.roles, name=ADMIN_ROLE_NAME)
+    if role:
+        return role.mention
+    # fallback to mention first user with manage_guild perms
+    admins = [m for m in guild.members if m.guild_permissions.manage_guild]
+    if admins:
+        return admins[0].mention
+    return "@here"
+
+# ---------- COMMANDS ----------
+@bot.command(name="help")
+async def cmd_help(ctx):
+    help_text = (
+        "**Ticket Manager Commands** (prefix `!t`)\n"
+        "`!t new` - Activate this channel as a ticket (start support)\n"
+        "`!t close` - Close ticket (admin only)\n"
+        "`!t pause` - Pause AI replies in this ticket (admin only)\n"
+        "`!t resume` - Resume AI replies (admin only)\n"
+        "`!t escalate` - Ask bot to escalate this ticket to admins\n"
+        "`!t status` - Show ticket status\n"
+    )
+    await ctx.send(help_text)
+
+@bot.command(name="new")
+async def cmd_new(ctx):
+    cid = ctx.channel.id
+    if cid in active_channels:
+        await ctx.send("This channel is already an active ticket. Ask your question and I'll help.")
+        return
+    active_channels.add(cid)
+    tm.save_active_channels(active_channels)
+    # initialize conversation
+    tm.save_conversation(cid, [])
+    await ctx.send("✅ Ticket activated. Please explain your issue — I'll respond automatically. Use `!t escalate` to call admins.")
+
+@bot.command(name="close")
+@commands.has_permissions(manage_guild=True)
+async def cmd_close(ctx):
+    cid = ctx.channel.id
+    if cid in active_channels:
+        active_channels.remove(cid)
+        tm.save_active_channels(active_channels)
+    if cid in paused_channels:
+        paused_channels.remove(cid)
+        tm.save_paused_channels(paused_channels)
+    tm.clear_conversation(cid)
+    await ctx.send("✅ Ticket closed and conversation memory cleared. Good work!")
+
+@bot.command(name="pause")
+@commands.has_permissions(manage_guild=True)
+async def cmd_pause(ctx):
+    cid = ctx.channel.id
+    paused_channels.add(cid)
+    tm.save_paused_channels(paused_channels)
+    await ctx.send("⏸️ AI replies paused in this ticket. Admins can `!t resume` when ready.")
+
+@bot.command(name="resume")
+@commands.has_permissions(manage_guild=True)
+async def cmd_resume(ctx):
+    cid = ctx.channel.id
+    if cid in paused_channels:
+        paused_channels.remove(cid)
+        tm.save_paused_channels(paused_channels)
+    await ctx.send("▶️ AI replies resumed in this ticket. You can continue assisting the user.")
+
+@bot.command(name="escalate")
+async def cmd_escalate(ctx):
+    cid = ctx.channel.id
+    mention = admin_mention(ctx.guild)
+    # pause channel so bot won't spam while admins join
+    paused_channels.add(cid)
+    tm.save_paused_channels(paused_channels)
+    await ctx.send(f"🚨 Escalation requested. Notifying admins: {mention}\nAdmins, please join and reply with `!t resume` when you're ready to hand it back.")
+    # Also send a short DM to users with Admin role (best-effort)
+    role = discord.utils.get(ctx.guild.roles, name=ADMIN_ROLE_NAME)
+    if role:
+        for m in role.members[:6]:  # avoid mass DM
+            try:
+                await m.send(f"Escalation in {ctx.guild.name}#{ctx.channel.name} requested by {ctx.author}.")
+            except Exception:
+                pass
+
+@bot.command(name="status")
+async def cmd_status(ctx):
+    cid = ctx.channel.id
+    s = "Active" if cid in active_channels else "Inactive"
+    p = "Paused" if cid in paused_channels else "Running"
+    await ctx.send(f"Ticket status: **{s}**, AI state: **{p}**")
+
+# ---------- MESSAGE HANDLING ----------
 @bot.event
 async def on_message(message):
+    # ignore bot messages
     if message.author == bot.user:
         return
 
+    # process commands first
     await bot.process_commands(message)
 
-    # Only respond in activated channels
-    if message.channel.id not in active_channels:
+    # only respond if channel is active and not paused
+    cid = message.channel.id
+    if cid not in active_channels:
+        return
+    if cid in paused_channels:
         return
 
-    user_id = message.author.id
-    user_message = message.content.strip()
+    # skip if message is a command
+    if message.content.startswith(PREFIX):
+        return
 
-    if user_id not in conversation_history:
-        conversation_history[user_id] = []
+    # record user message in conversation
+    lock = get_lock(cid)
+    async with lock:
+        conv = tm.load_conversation(cid)
+        conv.append({"role": "user", "text": message.content})
+        tm.save_conversation(cid, conv)
 
-    conversation_history[user_id].append({"role": "user", "text": user_message})
-
-    # Create context
-    chat_context = "\n".join(
-        [f"{msg['role'].capitalize()}: {msg['text']}" for msg in conversation_history[user_id][-10:]]
-    )
-
-    prompt = f"{SYSTEM_PROMPT}\n\nConversation:\n{chat_context}\n\nAssistant:"
-
-    try:
+        # typing indicator while AI works
         async with message.channel.typing():
-            response = gemini_model.generate_content(prompt)
-            ai_reply = response.text.strip()
+            try:
+                reply_text, escalate = await bot.loop.run_in_executor(
+                    None, lambda: ask_ai(SYSTEM_PROMPT, conv)
+                )
+            except Exception as e:
+                logger.exception("AI call failed: %s", e)
+                reply_text = ("Sorry, I'm unable to generate a reply right now. "
+                              "Admins have been notified.")
+                escalate = True
 
-            if ai_reply:
-                conversation_history[user_id].append({"role": "assistant", "text": ai_reply})
+            # If escalate True -> pause and notify admins
+            if escalate:
+                paused_channels.add(cid)
+                tm.save_paused_channels(paused_channels)
+                mention = admin_mention(message.guild)
+                await message.channel.send(f"⚠️ I couldn't fully resolve this. Notifying admins: {mention}")
+                # Save the AI's (partial) message into conv for records
+                conv.append({"role": "assistant", "text": reply_text})
+                tm.save_conversation(cid, conv)
+                return
 
-                # Split long messages
-                if len(ai_reply) > 2000:
-                    chunks = [ai_reply[i:i+2000] for i in range(0, len(ai_reply), 2000)]
-                    for chunk in chunks:
-                        await message.channel.send(chunk)
-                else:
-                    await message.channel.send(ai_reply)
-    except Exception as e:
-        print(f"⚠️ Error: {e}")
-        await message.channel.send("⚠️ Sorry, I ran into an issue while processing your request.")
+            # Send the AI reply
+            # Ensure reply isn't too long for Discord
+            if len(reply_text) > 1900:
+                chunks = [reply_text[i:i+1900] for i in range(0, len(reply_text), 1900)]
+                for c in chunks:
+                    await message.channel.send(c)
+            else:
+                await message.channel.send(reply_text)
 
-# ==============================
-# Commands
-# ==============================
-@bot.command(name="activate")
-async def activate_bot(ctx):
-    active_channels.add(ctx.channel.id)
-    await ctx.send(
-        "**✅ Bot activated in this channel!**\n\n"
-        "Now I’ll automatically respond to all messages here — no need to mention me.\n\n"
-        "**Support Info:**\n"
-        "Website: https://stake.bet/?c=789720c85d\n"
-        "Referral Code: **Donde**"
-    )
+            # append assistant reply
+            conv.append({"role": "assistant", "text": reply_text})
+            tm.save_conversation(cid, conv)
 
-@bot.command(name="deactivate")
-async def deactivate_bot(ctx):
-    if ctx.channel.id in active_channels:
-        active_channels.remove(ctx.channel.id)
-        await ctx.send("❎ Bot deactivated in this channel. Use `p activate` to re-enable.")
-    else:
-        await ctx.send("⚠️ Bot is not active in this channel.")
 
-@bot.command(name="reset")
-async def reset_conversation(ctx):
-    user_id = ctx.author.id
-    if user_id in conversation_history:
-        del conversation_history[user_id]
-    await ctx.send("✅ Conversation reset. How can I help you now?")
-
-@bot.command(name="close")
-async def close_ticket(ctx):
-    user_id = ctx.author.id
-    if user_id in conversation_history:
-        del conversation_history[user_id]
-    closing_message = random.choice([
-        "✅ Issue resolved! Have a great day! 🎉",
-        "✅ All done! Thanks for chatting with me. 😊",
-        "✅ Problem solved — good luck ahead! 🍀"
-    ])
-    await ctx.send(closing_message)
-
-@bot.command(name="commands")
-async def show_commands(ctx):
-    embed = discord.Embed(
-        title="🤖 AI Support Bot - Commands",
-        color=discord.Color.blue(),
-        description="Use the following commands with prefix `p`"
-    )
-    embed.add_field(name="⚡ Activation", value="`p activate` - Activate bot\n`p deactivate` - Deactivate bot", inline=False)
-    embed.add_field(name="💬 Support", value="`p reset` - Reset chat\n`p close` - End conversation", inline=False)
-    embed.add_field(name="ℹ️ Info", value="`p commands` - Show all commands", inline=False)
-    await ctx.send(embed=embed)
-
-# ==============================
-# Run bot
-# ==============================
+# ---------- START ----------
 if __name__ == "__main__":
-    bot.run(DISCORD_BOT_TOKEN)
+    bot.run(DISCORD_TOKEN)
