@@ -73,11 +73,11 @@ def admin_mention(guild: discord.Guild):
         return admins[0].mention
     return "@here"
 
-# ---------- COMMANDS ----------
-@bot.command(name="help")
-async def cmd_help(ctx):
+# ----------- COMMANDS -----------
+@bot.command(name="helpme")
+async def cmd_helpme(ctx):
     help_text = (
-        "**Ticket Manager Commands** (prefix `!t`)\n"
+        "**🎟 Ticket Manager Commands** (prefix `!t`)\n"
         "`!t new` - Activate this channel as a ticket (start support)\n"
         "`!t close` - Close ticket (admin only)\n"
         "`!t pause` - Pause AI replies in this ticket (admin only)\n"
