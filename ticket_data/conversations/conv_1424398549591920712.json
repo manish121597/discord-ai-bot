@@ -1,0 +1,38 @@
+[
+  {
+    "role": "user",
+    "text": "hi",
+    "author": "manish.sol"
+  },
+  {
+    "role": "assistant",
+    "text": "Hello! How can I assist you today? Are you looking for help with your account, a bet, or something else?"
+  },
+  {
+    "role": "user",
+    "text": "no",
+    "author": "manish.sol"
+  },
+  {
+    "role": "assistant",
+    "text": "Okay. Please tell me what you need assistance with."
+  },
+  {
+    "role": "user",
+    "text": "ok",
+    "author": "manish.sol"
+  },
+  {
+    "role": "assistant",
+    "text": "I'm ready to help. Please tell me what issue you are experiencing or what you need assistance with."
+  },
+  {
+    "role": "user",
+    "text": "of server isuues",
+    "author": "manish.sol"
+  },
+  {
+    "role": "assistant",
+    "text": "I understand you're experiencing server issues. Can you please describe what you are seeing or what isn't working for you?"
+  }
+]
