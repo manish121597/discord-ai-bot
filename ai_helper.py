@@ -1,74 +1,92 @@
-# ai_helper.py
-# Gemini AI handler with smart escalation logic
+# ai_helper.py (stable + improved escalation logic)
 import os
 import logging
 from typing import Tuple
-
 import google.generativeai as genai
 
-# -------- CONFIG ----------
+# --- Gemini API Configuration ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    print("⚠️ Warning: GEMINI_API_KEY is not set in environment!")
+else:
+    genai.configure(api_key=GEMINI_API_KEY)
 
-MODEL_PRIORITY = [
-    "models/gemini-2.0-pro",
-    "models/gemini-1.5-flash",
-    "models/gemini-1.5-pro",
-    "models/gemini-flash-latest",
+# Preferred models (Gemini 2.5 generation)
+MODELS = [
+    "models/gemini-2.5-flash",
+    "models/gemini-2.5-pro",
 ]
 
+# Logging setup
 logger = logging.getLogger("ai_helper")
 logger.setLevel(logging.INFO)
 
-# Keywords for escalation
-ESCALATION_KEYWORDS = [
-    "payout", "withdrawal", "withdraw", "deposit", "bonus",
-    "refer", "referral", "payment", "bank", "upi", "transaction",
-    "error", "blocked", "freeze", "admin", "support", "human",
-    "help me", "escalate", "issue", "problem", "login", "bet issue",
-]
 
-def _local_fallback_response(user_text: str) -> Tuple[str, bool]:
-    reply = (
-        "Sorry — I’m temporarily unable to reach the AI service. "
-        "Please wait a bit or mention the admins for assistance: "
-        "@Admin - Ticket Support"
+def _fallback_response() -> Tuple[str, bool]:
+    """Response when Gemini fails."""
+    return (
+        "⚠️ Sorry, I'm temporarily unable to connect to the AI service. "
+        "Please try again later or contact @Admin - Ticket Support.",
+        True,
     )
-    return reply, False  # don't auto-escalate on simple fallback
-
 
 
 def ask_ai(system_prompt: str, conversation: list, max_tokens: int = 700) -> Tuple[str, bool]:
-    """Send conversation to Gemini and return (reply, escalate_flag)."""
+    """
+    Handles conversation flow and escalation logic with Gemini AI.
+    Returns (response_text, escalate_boolean)
+    """
+    prompt = system_prompt + "\n\nConversation:\n"
+    for msg in conversation[-10:]:
+        role = "User" if msg.get("role") == "user" else "Assistant"
+        prompt += f"{role}: {msg.get('text')}\n"
+    prompt += "\nAssistant:"
 
     if not GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY missing — using fallback.")
-        return _local_fallback_response("")
+        logger.error("❌ No GEMINI_API_KEY found.")
+        return _fallback_response()
 
-    # build conversation text
-    chat_text = system_prompt + "\n\nConversation:\n"
-    for msg in conversation[-12:]:
-        role = "User" if msg.get("role") == "user" else "Assistant"
-        chat_text += f"{role}: {msg.get('text')}\n"
-    chat_text += "\nAssistant:"
-
-    genai.configure(api_key=GEMINI_API_KEY)
-
-    for model_name in MODEL_PRIORITY:
+    for model in MODELS:
         try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(chat_text)
-            text = response.text.strip() if hasattr(response, "text") else str(response)
+            logger.info(f"🔹 Using Gemini model: {model}")
+            model_obj = genai.GenerativeModel(model)
+            resp = model_obj.generate_content(prompt)
+            text = getattr(resp, "text", "").strip()
+
+            # Retry once if response is blank
             if not text:
+                logger.warning("⚠️ Empty response, retrying once...")
+                resp = model_obj.generate_content(prompt)
+                text = getattr(resp, "text", "").strip()
+
+            # Skip if still blank
+            if not text:
+                logger.warning(f"❌ No response from {model}, skipping.")
                 continue
 
-            # detect escalation
-            lower_text = text.lower()
-            escalate = any(k in lower_text for k in ESCALATION_KEYWORDS)
+            # --- Smarter escalation detection ---
+            text_l = text.lower()
+
+            issue_keywords = [
+                "error", "stuck", "not working", "pending", "payment",
+                "withdraw", "unable", "issue", "failed", "bug", "problem"
+            ]
+
+            safe_keywords = [
+                "hello", "hi", "thanks", "ok", "welcome", "ping",
+                "support", "help", "friend", "good", "fine"
+            ]
+
+            escalate = any(k in text_l for k in issue_keywords) and not any(
+                s in text_l for s in safe_keywords
+            )
+
+            logger.info(f"✅ Response generated (escalate={escalate})")
             return text, escalate
 
         except Exception as e:
-            logger.info(f"Model {model_name} failed: {e}")
+            logger.warning(f"⚠️ Model {model} failed: {e}")
             continue
 
-    logger.error("All Gemini models failed, using fallback.")
-    return _local_fallback_response(chat_text)
+    logger.error("❌ All Gemini models failed. Using fallback.")
+    return _fallback_response()
