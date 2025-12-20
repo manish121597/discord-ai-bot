@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Ticket: {{ cid }}</h2>
+  <div class="actions">
+    <form method="post" action="/ticket/{{cid}}/pause">
+      {% if paused %}
+        <input type="hidden" name="action" value="resume" />
+        <button class="btn">Resume Bot Replies</button>
+      {% else %}
+        <input type="hidden" name="action" value="pause" />
+        <button class="btn">Pause Bot Replies</button>
+      {% endif %}
+    </form>
+
+    <form method="post" action="/ticket/{{cid}}/escalate" style="display:inline-block;">
+      <input type="text" name="reason" placeholder="Escalation reason" required />
+      <button class="btn">Escalate (post summary)</button>
+    </form>
+  </div>
+
+  <hr />
+
+  <h3>Conversation</h3>
+  <div class="conversation">
+    {% for m in conv %}
+      <div class="msg">
+        <div class="role">{{ m.role }}</div>
+        <div class="text">{{ m.text }}</div>
+        <div class="author small">by: {{ m.author or "user" }}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <hr />
+  <h3>Send message as bot</h3>
+  <form method="post" action="/ticket/{{cid}}/send">
+    <textarea name="message" rows="4" style="width:100%" placeholder="Message to send as bot"></textarea>
+    <button class="btn">Send</button>
+  </form>
+{% endblock %}

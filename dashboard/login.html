@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Donde Admin Login</title>
+  <style>
+    body {
+      background:#0b0c0f;
+      color:white;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      height:100vh;
+      font-family:Arial;
+    }
+    .box {
+      background:#111;
+      padding:40px;
+      border-radius:10px;
+      width:320px;
+      box-shadow:0 0 20px rgba(255,0,0,0.2);
+    }
+    input {
+      width:100%;
+      padding:10px;
+      margin-top:10px;
+      background:#222;
+      border:1px solid #333;
+      color:white;
+      border-radius:5px;
+    }
+    button {
+      margin-top:15px;
+      width:100%;
+      padding:10px;
+      background:red;
+      border:none;
+      color:black;
+      font-weight:bold;
+      border-radius:5px;
+      cursor:pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Admin Login</h2>
+    <input id="user" placeholder="Username">
+    <input id="pass" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <p id="msg"></p>
+  </div>
+
+  <script>
+    async function login() {
+      const username = document.getElementById("user").value;
+      const password = document.getElementById("pass").value;
+
+      const res = await fetch("http://127.0.0.1:8081/login", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await res.json();
+
+      if(data.access_token){
+        localStorage.setItem("token", data.access_token);
+        window.location.href = "dashboard.html";
+      } else {
+        document.getElementById("msg").innerText = "Login failed";
+      }
+    }
+  </script>
+</body>
+</html>

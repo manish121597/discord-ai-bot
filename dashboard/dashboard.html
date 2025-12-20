@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Donde — Support Dashboard</title>
+
+  <!-- ✅ LOGIN PROTECTION -->
+  <script>
+    const token = localStorage.getItem("token");
+    if (!token) {
+      window.location.href = "login.html";
+    }
+  </script>
+
+  <style>
+    :root{
+      --bg:#0b0c0f;
+      --panel:#0f1114;
+      --muted:#9aa4af;
+      --neon:#ff2e2e;
+      --accent:linear-gradient(90deg,#ff2e2e,#ff6b6b);
+      --glass: rgba(255,255,255,0.03);
+      --card-shadow: 0 8px 30px rgba(0,0,0,0.6);
+      font-family: Inter, system-ui;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);color:#e6eef6}
+    .app{display:grid;grid-template-columns:340px 1fr;gap:20px;height:100vh;padding:22px}
+    .panel{background:var(--panel);border-radius:12px;padding:16px}
+    .tickets{margin-top:8px;display:flex;flex-direction:column;gap:8px;height:80vh;overflow:auto}
+    .ticket{display:flex;gap:10px;align-items:center;padding:10px;border-radius:8px;cursor:pointer}
+    .ticket:hover{background:#1a1a1a}
+    .main{display:flex;flex-direction:column}
+    .conversation{flex:1;overflow:auto;padding:18px}
+    .message{display:flex;margin-bottom:12px}
+    .message.user{justify-content:flex-end}
+    .bubble{padding:10px 12px;border-radius:10px;background:#1a1a1a}
+    .btn{padding:8px 14px;border-radius:6px;background:red;color:black;border:none;cursor:pointer}
+    .tiny{font-size:12px;color:#aaa}
+  </style>
+</head>
+
+<body>
+<div class="app">
+
+  <div class="panel">
+    <h3>Live Tickets</h3>
+    <div class="tickets" id="ticketList"></div>
+  </div>
+
+  <div class="main">
+    <h2 id="activeTitle">Select Ticket</h2>
+    <div class="conversation" id="conversation"></div>
+
+    <div style="display:flex;gap:8px">
+      <input id="replyInput" style="flex:1;padding:10px" placeholder="Reply as admin...">
+      <button class="btn" id="sendBtn">Send</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const ticketList = document.getElementById("ticketList");
+  const conversation = document.getElementById("conversation");
+  const activeTitle = document.getElementById("activeTitle");
+
+  let currentTicket = null;
+
+  // ✅ LOAD REAL TICKETS FROM API
+  async function loadTickets() {
+    const res = await fetch("http://127.0.0.1:8081/tickets", {
+      headers: {
+        "Authorization": "Bearer " + localStorage.getItem("token")
+      }
+    });
+    const data = await res.json();
+
+    ticketList.innerHTML = "";
+    data.tickets.forEach(t => {
+      const div = document.createElement("div");
+      div.className = "ticket";
+      div.innerText = "Ticket: " + t.ticket_id;
+      div.onclick = () => loadConversation(t);
+      ticketList.appendChild(div);
+    });
+  }
+
+  // ✅ LOAD REAL CONVERSATION
+  function loadConversation(ticket) {
+    currentTicket = ticket.ticket_id;
+    activeTitle.innerText = "Ticket: " + ticket.ticket_id;
+
+    conversation.innerHTML = "";
+    ticket.messages.forEach(m => {
+      const div = document.createElement("div");
+      div.className = "message " + (m.role === "user" ? "user" : "");
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.innerHTML = `<div class="tiny">${m.role}</div><div>${m.text}</div>`;
+      div.appendChild(bubble);
+      conversation.appendChild(div);
+    });
+  }
+
+  // ✅ SEND LIVE MESSAGE TO DISCORD
+  document.getElementById("sendBtn").addEventListener("click", async () => {
+    const txt = document.getElementById("replyInput").value.trim();
+    if(!txt || !currentTicket) return;
+
+    await fetch("http://127.0.0.1:8081/send_reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + localStorage.getItem("token")
+      },
+      body: JSON.stringify({
+        ticket_id: currentTicket,
+        message: txt
+      })
+    });
+
+    document.getElementById("replyInput").value = "";
+    alert("Sent to Discord ✅");
+  });
+
+  loadTickets();
+</script>
+</body>
+</html>

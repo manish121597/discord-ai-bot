@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Donde Admin Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Donde — Admin Dashboard</h1>
+      <nav>
+        {% if logged_in %}
+          <span class="user">Logged in as {{user.username}}</span>
+          <a href="/logout">Logout</a>
+        {% else %}
+          <a href="/login">Login with Discord</a>
+        {% endif %}
+      </nav>
+    </div>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="container">
+    <small>Donde Dashboard • Local dev</small>
+  </footer>
+</body>
+</html>
