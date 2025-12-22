@@ -87,3 +87,17 @@ def clear_conversation(channel_id: int):
             p.unlink()
     except Exception as e:
         print(f"[WARN] Failed to clear conversation for {channel_id}: {e}")
+
+def get_all_ticket_conversations():
+    base = "ticket_data"
+    results = {}
+    if not os.path.exists(base):
+        return results
+
+    for cid in os.listdir(base):
+        folder = f"{base}/{cid}"
+        conv_file = f"{folder}/conversation.json"
+        if os.path.exists(conv_file):
+            with open(conv_file, "r", encoding="utf-8") as f:
+                results[cid] = json.load(f)
+    return results
