@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+  {% if not logged_in %}
+    <h2>Admin login required</h2>
+    <p><a class="btn" href="{{ oauth_url }}">Login with Discord</a></p>
+  {% else %}
+    <h2>Open tickets</h2>
+    <table>
+      <thead><tr><th>Channel ID</th><th>Last message</th><th>Paused</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td><a href="/ticket/{{ t.channel_id }}">{{ t.channel_id }}</a></td>
+          <td>{{ t.last_text }}</td>
+          <td>{{ "✅" if t.paused else "—" }}</td>
+          <td>
+            <a href="/ticket/{{t.channel_id}}">View</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">No tickets found</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endblock %}

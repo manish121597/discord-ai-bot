@@ -1,0 +1,52 @@
+{
+  "owner": "Donde",
+  "admins": ["FatboiSlim", "Maximize", "Hax"],
+  "mods": ["Dylan"],
+  "helpers": ["BRY4N", "Wardell"],
+
+  "referral_link_stake": "https://stake.com/?c=789720c85d",
+  "referral_link_stakeus": "https://stake.us/?c=2W2uOg1P",
+  "website": "https://dondebonuses.com/",
+  "kick": "https://kick.com/donde",
+  "youtube": "https://youtube.com/@DondeSlots",
+  "twitter": "https://twitter.com/7Donde",
+  "discord": "https://discord.gg/donde",
+  "instagram": "https://instagram.com/7donde",
+  "facebook": "https://facebook.com/DondeBonus",
+
+  "leaderboards": {
+    "200k_leaderboard": {
+      "description": "The $200,000 Stake Monthly Leaderboard runs every month from the 1st to the last day. Users under code Donde compete for rewards, with a $60,000 top prize. Winners must open a #ticket-help before the 3rd of the next month with proof.",
+      "link": "https://dondebonuses.com/leaderboard"
+    },
+    "10k_dd_leaderboard": {
+      "description": "The $10,000 Donde Dollar Monthly Leaderboard (on dondebonuses.com) also resets on the 1st of each month. 50 winners share the pool, with a $3,000 top prize. Earn DD by watching Kick streams, completing site tasks, and linking your Stake account.",
+      "link": "https://dondebonuses.com/donde-dollar-leaderboard"
+    }
+  },
+
+  "bonuses": {
+    "$50_free_stake": "New accounts under code Donde get $50 free balance ($28 in reloads, $22 tip). Must open a ticket and send your Stake username.",
+    "$25_free_stakeus": "Stake.us users can sign up using code Donde for a $25 welcome bonus + $1 forever (requires KYC).",
+    "deposit_bonus": "200% deposit bonus (up to $1500). Must create account under Donde, deposit $100-$1500, and open a ticket to claim."
+  },
+
+  "raffles": {
+    "25k_monthly": {
+      "description": "The $25,000 Stake Monthly Raffle runs each month for users under Donde, with $5,000, $3,000, and $2,000 top prizes.",
+      "link": "https://dondebonuses.com/raffle"
+    }
+  },
+
+  "giveaways": {
+    "twitter": "#twitter-giveaways",
+    "discord": "#discord-giveaways",
+    "info": "Giveaways happen only on Twitter and Discord under Donde’s community. There is no #events channel."
+  },
+
+  "notes": {
+    "referral": "Players must register under Donde’s referral link to qualify for any rewards or bonuses.",
+    "contact": "For issues regarding payouts, KYC, or account help, open a #ticket-help channel.",
+    "misc": "Donde is an affiliate partner of Stake. His community rewards users through monthly leaderboards, raffles, and bonuses both on Stake and on dondebonuses.com."
+  }
+}
