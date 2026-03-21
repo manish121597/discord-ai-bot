@@ -1,19 +1,64 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8081";
 
 export async function getServers() {
-  try {
-    const res = await fetch(`${API_BASE}/api/server_map`);
-    return await res.json();
-  } catch {
-    return { servers: [] };
-  }
+  const res = await fetch(`${API_BASE}/api/server_map`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  });
+  return res.json();
 }
 
 export async function getConversation(ticketId) {
-  try {
-    const res = await fetch(`${API_BASE}/api/conversation/${ticketId}`);
-    return await res.json();
-  } catch {
-    return { messages: [] };
-  }
+  const res = await fetch(`${API_BASE}/api/conversation/${ticketId}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  });
+  return res.json();
+}
+
+export async function getTickets() {
+  const res = await fetch(`${API_BASE}/api/tickets`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  });
+  return res.json();
+}
+
+export async function sendReply(ticketId, message) {
+  const res = await fetch(`${API_BASE}/api/send_reply`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+    body: JSON.stringify({ ticket_id: ticketId, message }),
+  });
+  return res.json();
+}
+
+export async function closeTicket(ticketId) {
+  const res = await fetch(`${API_BASE}/api/close_ticket`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+    body: JSON.stringify({ ticket_id: ticketId }),
+  });
+  return res.json();
+}
+
+export async function getAdminLogs() {
+  const res = await fetch(`${API_BASE}/api/admin_logs`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+  });
+  return res.json();
+}
+
+export async function login(username, password) {
+  const res = await fetch(`${API_BASE}/api/login`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json();
+  localStorage.setItem("token", data.access_token);
+  return data;
 }

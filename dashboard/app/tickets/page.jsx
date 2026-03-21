@@ -2,29 +2,25 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { getTickets } from "@/lib/api";
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   async function loadTickets() {
-    const token = localStorage.getItem("token");
-
-    const res = await fetch("http://localhost:8081/tickets", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await res.json();
+    const data = await getTickets();
     setTickets(data.tickets || []);
+    setLoading(false);
   }
 
-  // 🔁 AUTO REFRESH
   useEffect(() => {
     loadTickets();
     const interval = setInterval(loadTickets, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  if (loading) return <div className="p-10">Loading...</div>;
 
   return (
     <div className="p-10">
@@ -32,9 +28,7 @@ export default function TicketsPage() {
         📩 Live Support Tickets
       </h1>
 
-      {!tickets.length && (
-        <p className="text-gray-400">No active tickets.</p>
-      )}
+      {!tickets.length && <p>No active tickets.</p>}
 
       {tickets.map((ticket) => (
         <Link
@@ -42,30 +36,12 @@ export default function TicketsPage() {
           href={`/tickets/${ticket.ticket_id}`}
           className="block bg-neutral-900 p-4 mb-3 rounded hover:bg-neutral-800"
         >
-          <div className="flex justify-between items-center">
-            <span className="font-semibold">
-              Ticket #{ticket.ticket_id}
-            </span>
-
-            {/* ✅ STATUS BADGE */}
-            <span
-              className={`text-xs px-2 py-1 rounded ${
-                ticket.status === "CLOSED"
-                  ? "bg-red-700 text-white"
-                  : "bg-green-700 text-white"
-              }`}
-            >
-              {ticket.status}
-            </span>
+          <div className="flex justify-between">
+            <span>Ticket #{ticket.ticket_id}</span>
+            <span>{ticket.status}</span>
           </div>
-
-          <div className="text-sm text-gray-400 mt-1">
-            {ticket.count} messages
-          </div>
-
-          <div className="text-sm text-gray-400 mt-1 truncate">
-            {ticket.last_message}
-          </div>
+          <div>{ticket.count} messages</div>
+          <div>{ticket.last_message}</div>
         </Link>
       ))}
     </div>
