@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getTickets } from "@/lib/api";
+import { getTickets } from "../../lib/api";
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState([]);
