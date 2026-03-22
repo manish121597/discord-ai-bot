@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 load_dotenv()
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-JWT_SECRET = "donde_fixed_secret_2025"
+JWT_SECRET = "donde_fixed_secret_2026"
 JWT_ALGO = "HS256"
 
 STATUS_FILE = "ticket_data/ticket_status.json"
