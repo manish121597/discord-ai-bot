@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+const API_BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
 
 console.log("API_BASE:", API_BASE);
 
