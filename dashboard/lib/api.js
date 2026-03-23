@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8081";
+const API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+console.log("API_BASE:", API_BASE);
 
 export async function getServers() {
   const res = await fetch(`${API_BASE}/api/server_map`, {
