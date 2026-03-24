@@ -10,7 +10,7 @@ export default function Login() {
 
   async function doLogin() {
     try {
-      const res = await fetch("http://localhost:8081/login", {
+      const res = await fetch("https://discord-ai-bot-1-p5hk.onrender.com/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: user, password: pass })
