@@ -3,42 +3,51 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+const BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
+
 export default function Dashboard() {
   const router = useRouter();
   const [servers, setServers] = useState([]);
   const [tickets, setTickets] = useState([]);
 
-  // 🔒 Redirect user to login page if NO token exists
+  // 🔒 Redirect if no token
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) router.push("/login");
   }, []);
 
   async function loadServers() {
-    const token = localStorage.getItem("token");
-  
-    const res = await fetch("http://localhost:8081/server_map", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  
-    const data = await res.json();
-    setServers(data.servers || []);
+    try {
+      const token = localStorage.getItem("token");
+
+      const res = await fetch(`${BASE}/api/server_map`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      setServers(data.servers || []);
+    } catch (err) {
+      console.error("Server load error:", err);
+    }
   }
 
-
   async function loadTickets() {
-    const token = localStorage.getItem("token");
+    try {
+      const token = localStorage.getItem("token");
 
-    const res = await fetch("http://localhost:8081/tickets", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+      const res = await fetch(`${BASE}/api/tickets`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    const data = await res.json();
-    setTickets(data.tickets || []);
+      const data = await res.json();
+      setTickets(data.tickets || []);
+    } catch (err) {
+      console.error("Ticket load error:", err);
+    }
   }
 
   return (
@@ -50,6 +59,7 @@ export default function Dashboard() {
       {/* SERVER MAP */}
       <div className="bg-neutral-900 p-8 rounded-xl shadow-lg border border-yellow-700 mb-10">
         <h2 className="text-2xl mb-4">Server Map</h2>
+
         <button
           onClick={loadServers}
           className="bg-yellow-600 hover:bg-yellow-700 text-black px-4 py-2 rounded-lg"
@@ -62,7 +72,7 @@ export default function Dashboard() {
         </pre>
       </div>
 
-      {/* TICKET CONVERSATIONS */}
+      {/* TICKETS */}
       <div className="bg-neutral-900 p-8 rounded-xl shadow-lg border border-yellow-700">
         <h2 className="text-2xl mb-4">Ticket Conversations</h2>
 
