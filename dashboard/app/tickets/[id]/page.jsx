@@ -2,94 +2,61 @@
 
 import { useEffect, useState } from "react";
 
-const BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
-
 export default function TicketDetail({ params }) {
   const { id } = params;
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState("");
-  const [loading, setLoading] = useState(true);
 
-  // 🔁 LOAD CHAT
-  async function loadTicket() {
-    try {
-      const token = localStorage.getItem("token");
+  // 🔁 AUTO LOAD CHAT
+  useEffect(() => {
+    const token = localStorage.getItem("token");
 
-      const res = await fetch(`${BASE}/api/tickets`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+    async function loadTicket() {
+      const res = await fetch("http://localhost:8081/tickets", {
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const data = await res.json();
-
-      const ticket = data.tickets?.find(
-        (t) => String(t.ticket_id) === String(id)
-      );
-
+      const ticket = data.tickets.find(t => t.ticket_id === id);
       setMessages(ticket?.messages || []);
-      setLoading(false);
-    } catch (err) {
-      console.error("Load error:", err);
     }
-  }
 
-  // AUTO REFRESH
-  useEffect(() => {
     loadTicket();
     const i = setInterval(loadTicket, 4000);
     return () => clearInterval(i);
   }, [id]);
 
-  // 🚀 SEND REPLY
+  // 🚀 SEND ADMIN REPLY
   async function sendReply() {
-    if (!reply.trim()) return;
+    const token = localStorage.getItem("token");
 
-    try {
-      const token = localStorage.getItem("token");
+    await fetch("http://localhost:8081/send_reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ ticket_id: id, message: reply }),
+    });
 
-      await fetch(`${BASE}/api/send_reply`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          ticket_id: id,
-          message: reply,
-        }),
-      });
-
-      setReply("");
-      loadTicket(); // instant refresh
-    } catch (err) {
-      console.error("Reply error:", err);
-    }
+    setReply("");
   }
 
   // ❌ CLOSE TICKET
   async function closeTicket() {
-    try {
-      const token = localStorage.getItem("token");
+    const token = localStorage.getItem("token");
 
-      await fetch(`${BASE}/api/close_ticket`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ ticket_id: id }),
-      });
+    await fetch("http://localhost:8081/close_ticket", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ ticket_id: id }),
+    });
 
-      alert("Ticket closed ❌");
-      window.location.href = "/tickets";
-    } catch (err) {
-      console.error("Close error:", err);
-    }
-  }
-
-  if (loading) {
-    return <div className="p-10 text-white">Loading chat...</div>;
+    alert("Ticket closed ❌");
+    window.location.href = "/tickets";
   }
 
   return (
@@ -100,17 +67,13 @@ export default function TicketDetail({ params }) {
 
       {/* CHAT */}
       <div className="bg-neutral-900 p-4 rounded-lg h-[65vh] overflow-y-auto mb-4">
-        {messages.length === 0 && <p>No messages yet</p>}
-
         {messages.map((m, i) => {
           const isAdmin = m.author === "ADMIN";
 
           return (
             <div
               key={i}
-              className={`flex mb-4 ${
-                isAdmin ? "justify-end" : "justify-start"
-              }`}
+              className={`flex mb-4 ${isAdmin ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`max-w-[70%] p-3 rounded-lg text-sm ${
@@ -130,12 +93,12 @@ export default function TicketDetail({ params }) {
                   m.attachments.map((img, idx) => (
                     <a
                       key={idx}
-                      href={`${BASE}/${img}`}
+                      href={`http://localhost:8081/${img}`}
                       target="_blank"
                       rel="noreferrer"
                     >
                       <img
-                        src={`${BASE}/${img}`}
+                        src={`http://localhost:8081/${img}`}
                         className="mt-2 rounded-lg max-h-60 border border-neutral-700"
                       />
                     </a>
