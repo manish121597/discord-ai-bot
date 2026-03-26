@@ -1,66 +1,89 @@
 const API_BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
 
-console.log("API_BASE:", API_BASE);
-
-export async function getServers() {
-  const res = await fetch(`${API_BASE}/api/server_map`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
-  return res.json();
+// 🔐 GET TOKEN
+function getToken() {
+  return localStorage.getItem("token");
 }
 
-export async function getConversation(ticketId) {
-  const res = await fetch(`${API_BASE}/api/conversation/${ticketId}`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
-  return res.json();
-}
+// 🚀 CORE FETCH WRAPPER
+async function apiFetch(endpoint, options = {}) {
+  const token = getToken();
 
-export async function getTickets() {
-  const res = await fetch(`${API_BASE}/api/tickets`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-  });
-  return res.json();
-}
-
-export async function sendReply(ticketId, message) {
-  const res = await fetch(`${API_BASE}/api/send_reply`, {
-    method: "POST",
+  const res = await fetch(${API_BASE}${endpoint}, {
+    ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("token")}`,
+      Authorization: Bearer ${token}, // ✅ FIXED
+      ...(options.headers || {}),
     },
-    body: JSON.stringify({ ticket_id: ticketId, message }),
   });
+
+  // ❌ handle unauthorized
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+    return;
+  }
+
+  // ❌ handle errors
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "API error");
+  }
+
   return res.json();
 }
 
-export async function closeTicket(ticketId) {
-  const res = await fetch(`${API_BASE}/api/close_ticket`, {
+// 📡 APIs
+
+export function getServers() {
+  return apiFetch("/api/server_map");
+}
+
+export function getTickets() {
+  return apiFetch("/api/tickets");
+}
+
+export function getConversation(ticketId) {
+  return apiFetch(/api/conversation/${ticketId});
+}
+
+export function sendReply(ticketId, message) {
+  return apiFetch("/api/send_reply", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem("token")}`,
-    },
-    body: JSON.stringify({ ticket_id: ticketId }),
+    body: JSON.stringify({
+      ticket_id: ticketId,
+      message,
+    }),
   });
-  return res.json();
 }
 
-export async function getAdminLogs() {
-  const res = await fetch(`${API_BASE}/api/admin_logs`, {
-    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+export function closeTicket(ticketId) {
+  return apiFetch("/api/close_ticket", {
+    method: "POST",
+    body: JSON.stringify({
+      ticket_id: ticketId,
+    }),
   });
-  return res.json();
 }
 
+export function getAdminLogs() {
+  return apiFetch("/api/admin_logs");
+}
+
+// 🔐 LOGIN
 export async function login(username, password) {
-  const res = await fetch(`${API_BASE}/api/login`, {
+  const res = await fetch(${API_BASE}/api/login, {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
+
   const data = await res.json();
-  localStorage.setItem("token", data.access_token);
+
+  if (data.access_token) {
+    localStorage.setItem("token", data.access_token);
+  }
+
   return data;
 }

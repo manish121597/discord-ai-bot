@@ -1,16 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
+import ConversationViewer from "../../../components/ConversationViewer";
 
 const BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
 
 export default function TicketDetail({ params }) {
   const { id } = params;
+  const router = useRouter();
+
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
 
-  // 🔁 LOAD CHAT
+  const chatRef = useRef(null);
+
   async function loadTicket() {
     try {
       const token = localStorage.getItem("token");
@@ -29,23 +35,30 @@ export default function TicketDetail({ params }) {
 
       setMessages(ticket?.messages || []);
       setLoading(false);
+
+      setTimeout(() => {
+        chatRef.current?.scrollTo({
+          top: chatRef.current.scrollHeight,
+          behavior: "smooth",
+        });
+      }, 100);
     } catch (err) {
       console.error("Load error:", err);
     }
   }
 
-  // AUTO REFRESH
   useEffect(() => {
     loadTicket();
     const i = setInterval(loadTicket, 4000);
     return () => clearInterval(i);
   }, [id]);
 
-  // 🚀 SEND REPLY
   async function sendReply() {
     if (!reply.trim()) return;
 
     try {
+      setSending(true);
+
       const token = localStorage.getItem("token");
 
       await fetch(`${BASE}/api/send_reply`, {
@@ -61,14 +74,25 @@ export default function TicketDetail({ params }) {
       });
 
       setReply("");
-      loadTicket(); // instant refresh
+      await loadTicket();
     } catch (err) {
       console.error("Reply error:", err);
+    } finally {
+      setSending(false);
     }
   }
 
-  // ❌ CLOSE TICKET
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendReply();
+    }
+  }
+
   async function closeTicket() {
+    const confirmClose = confirm("Are you sure to close?");
+    if (!confirmClose) return;
+
     try {
       const token = localStorage.getItem("token");
 
@@ -81,93 +105,67 @@ export default function TicketDetail({ params }) {
         body: JSON.stringify({ ticket_id: id }),
       });
 
-      alert("Ticket closed ❌");
-      window.location.href = "/tickets";
+      router.push("/tickets");
     } catch (err) {
       console.error("Close error:", err);
     }
   }
 
   if (loading) {
-    return <div className="p-10 text-white">Loading chat...</div>;
+    return (
+      <div className="p-10 text-yellow-400">
+        Loading chat...
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 text-white">
-      <h1 className="text-2xl text-yellow-400 mb-6">
-        🧾 Ticket #{id}
-      </h1>
+    <div className="min-h-screen bg-black text-white flex flex-col">
+      
+      {/* HEADER */}
+      <div className="p-4 border-b border-neutral-800 flex justify-between items-center">
+        <button
+          onClick={() => router.push("/tickets")}
+          className="text-yellow-400"
+        >
+          ← Back
+        </button>
 
-      {/* CHAT */}
-      <div className="bg-neutral-900 p-4 rounded-lg h-[65vh] overflow-y-auto mb-4">
-        {messages.length === 0 && <p>No messages yet</p>}
+        <h1 className="text-yellow-400 font-bold">
+          Ticket #{id}
+        </h1>
 
-        {messages.map((m, i) => {
-          const isAdmin = m.author === "ADMIN";
-
-          return (
-            <div
-              key={i}
-              className={`flex mb-4 ${
-                isAdmin ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`max-w-[70%] p-3 rounded-lg text-sm ${
-                  isAdmin
-                    ? "bg-yellow-500 text-black"
-                    : "bg-neutral-800 text-white"
-                }`}
-              >
-                <div className="text-xs opacity-70 mb-1">
-                  {isAdmin ? "ADMIN" : m.author}
-                </div>
-
-                {m.content && <div>{m.content}</div>}
-
-                {/* 🖼️ ATTACHMENTS */}
-                {Array.isArray(m.attachments) &&
-                  m.attachments.map((img, idx) => (
-                    <a
-                      key={idx}
-                      href={`${BASE}/${img}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        src={`${BASE}/${img}`}
-                        className="mt-2 rounded-lg max-h-60 border border-neutral-700"
-                      />
-                    </a>
-                  ))}
-              </div>
-            </div>
-          );
-        })}
+        <button
+          onClick={closeTicket}
+          className="bg-red-600 px-3 py-1 rounded text-sm"
+        >
+          Close ❌
+        </button>
       </div>
 
-      {/* REPLY */}
-      <textarea
-        value={reply}
-        onChange={(e) => setReply(e.target.value)}
-        placeholder="Type admin reply..."
-        className="w-full p-3 rounded bg-neutral-800 text-white mb-3"
-      />
+      {/* CHAT (COMPONENT USE) */}
+      <div ref={chatRef} className="flex-1 overflow-y-auto">
+        <ConversationViewer messages={messages} BASE={BASE} />
+      </div>
 
-      <button
-        onClick={sendReply}
-        className="bg-yellow-600 hover:bg-yellow-700 px-6 py-2 rounded text-black font-semibold"
-      >
-        Send Reply 🚀
-      </button>
+      {/* INPUT */}
+      <div className="p-4 border-t border-neutral-800">
+        <textarea
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+          onKeyDown={handleKey}
+          placeholder="Type reply..."
+          className="w-full p-3 rounded bg-neutral-900 mb-3 outline-none"
+        />
 
-      {/* ❌ CLOSE */}
-      <button
-        onClick={closeTicket}
-        className="mt-4 bg-red-600 hover:bg-red-700 px-6 py-2 rounded text-white font-semibold"
-      >
-        Close Ticket ❌
-      </button>
+        <button
+          onClick={sendReply}
+          disabled={sending}
+          className="bg-yellow-600 hover:bg-yellow-700 px-6 py-2 rounded text-black font-semibold"
+        >
+          {sending ? "Sending..." : "Send 🚀"}
+        </button>
+      </div>
     </div>
   );
 }

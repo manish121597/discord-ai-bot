@@ -6,12 +6,20 @@ import { getTickets } from "../../lib/api";
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState([]);
+  const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   async function loadTickets() {
-    const data = await getTickets();
-    setTickets(data.tickets || []);
-    setLoading(false);
+    try {
+      const data = await getTickets();
+      const list = data.tickets || [];
+      setTickets(list);
+      setFiltered(list);
+      setLoading(false);
+    } catch (err) {
+      console.error("Error loading tickets:", err);
+    }
   }
 
   useEffect(() => {
@@ -20,30 +28,78 @@ export default function TicketsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  if (loading) return <div className="p-10">Loading...</div>;
+  // 🔍 search filter
+  useEffect(() => {
+    const filteredList = tickets.filter((t) =>
+      t.ticket_id.toLowerCase().includes(search.toLowerCase())
+    );
+    setFiltered(filteredList);
+  }, [search, tickets]);
+
+  function getStatusColor(status) {
+    if (status === "OPEN") return "text-green-400";
+    if (status === "CLOSED") return "text-red-400";
+    return "text-yellow-400";
+  }
+
+  if (loading) {
+    return (
+      <div className="p-10 text-yellow-400">
+        Loading tickets...
+      </div>
+    );
+  }
 
   return (
-    <div className="p-10">
-      <h1 className="text-3xl text-yellow-400 mb-6">
+    <div className="min-h-screen bg-black text-yellow-400 p-10">
+      <h1 className="text-3xl mb-6">
         📩 Live Support Tickets
       </h1>
 
-      {!tickets.length && <p>No active tickets.</p>}
+      {/* 🔍 Search */}
+      <input
+        type="text"
+        placeholder="Search ticket id..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-6 w-full p-3 rounded bg-neutral-900 border border-yellow-600 outline-none"
+      />
 
-      {tickets.map((ticket) => (
-        <Link
-          key={ticket.ticket_id}
-          href={`/tickets/${ticket.ticket_id}`}
-          className="block bg-neutral-900 p-4 mb-3 rounded hover:bg-neutral-800"
-        >
-          <div className="flex justify-between">
-            <span>Ticket #{ticket.ticket_id}</span>
-            <span>{ticket.status}</span>
-          </div>
-          <div>{ticket.count} messages</div>
-          <div>{ticket.last_message}</div>
-        </Link>
-      ))}
+      {!filtered.length && (
+        <p className="text-yellow-500">No matching tickets.</p>
+      )}
+
+      <div className="grid gap-4">
+        {filtered.map((ticket) => (
+          <Link
+            key={ticket.ticket_id}
+            href={/tickets/${ticket.ticket_id}}
+            className="block p-4 bg-neutral-900 rounded-xl border border-yellow-700 hover:bg-neutral-800 transition"
+          >
+            <div className="flex justify-between items-center">
+              <p className="font-bold">
+                #{ticket.ticket_id}
+              </p>
+              <span className={getStatusColor(ticket.status)}>
+                {ticket.status}
+              </span>
+            </div>
+
+            <p className="text-sm mt-2 text-yellow-300">
+              {ticket.last_message}
+            </p>
+
+            <p className="text-xs mt-2">
+              Messages: {ticket.count}
+            </p>
+          </Link>
+        ))}
+      </div>
+
+      {/* ⚡ Auto refresh indicator */}
+      <p className="text-xs mt-6 text-yellow-600">
+        Auto-refresh every 5 seconds
+      </p>
     </div>
   );
 }
