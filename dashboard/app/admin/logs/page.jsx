@@ -1,20 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getAdminLogs } from "../../../lib/api";
 
 export default function AdminLogs() {
   const [logs, setLogs] = useState([]);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-
-    fetch("http://localhost:8081/admin_logs", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then(res => res.json())
-      .then(data => setLogs(data.logs || []));
+    getAdminLogs()
+      .then((data) => setLogs(data.logs || []))
+      .catch((err) => console.error("Failed to load admin logs:", err));
   }, []);
 
   return (

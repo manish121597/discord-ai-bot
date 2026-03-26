@@ -1,78 +1,56 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ConversationViewer from "../../../components/ConversationViewer";
-
-const BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
+import {
+  closeTicket,
+  getApiBase,
+  getConversation,
+  sendReply,
+} from "../../../lib/api";
 
 export default function TicketDetail({ params }) {
   const { id } = params;
   const router = useRouter();
+  const chatRef = useRef(null);
 
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
 
-  const chatRef = useRef(null);
-
   async function loadTicket() {
     try {
-      const token = localStorage.getItem("token");
-
-      const res = await fetch(`${BASE}/api/tickets`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await res.json();
-
-      const ticket = data.tickets?.find(
-        (t) => String(t.ticket_id) === String(id)
-      );
-
-      setMessages(ticket?.messages || []);
+      const data = await getConversation(id);
+      setMessages(data.messages || []);
+    } catch (err) {
+      console.error("Load error:", err);
+    } finally {
       setLoading(false);
-
       setTimeout(() => {
         chatRef.current?.scrollTo({
           top: chatRef.current.scrollHeight,
           behavior: "smooth",
         });
       }, 100);
-    } catch (err) {
-      console.error("Load error:", err);
     }
   }
 
   useEffect(() => {
     loadTicket();
-    const i = setInterval(loadTicket, 4000);
-    return () => clearInterval(i);
+    const interval = setInterval(loadTicket, 4000);
+    return () => clearInterval(interval);
   }, [id]);
 
-  async function sendReply() {
-    if (!reply.trim()) return;
+  async function handleSendReply() {
+    if (!reply.trim()) {
+      return;
+    }
 
     try {
       setSending(true);
-
-      const token = localStorage.getItem("token");
-
-      await fetch(`${BASE}/api/send_reply`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          ticket_id: id,
-          message: reply,
-        }),
-      });
-
+      await sendReply(id, reply.trim());
       setReply("");
       await loadTicket();
     } catch (err) {
@@ -82,29 +60,21 @@ export default function TicketDetail({ params }) {
     }
   }
 
-  function handleKey(e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendReply();
+  function handleKeyDown(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSendReply();
     }
   }
 
-  async function closeTicket() {
-    const confirmClose = confirm("Are you sure to close?");
-    if (!confirmClose) return;
+  async function handleCloseTicket() {
+    const confirmClose = window.confirm("Are you sure you want to close this ticket?");
+    if (!confirmClose) {
+      return;
+    }
 
     try {
-      const token = localStorage.getItem("token");
-
-      await fetch(`${BASE}/api/close_ticket`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ ticket_id: id }),
-      });
-
+      await closeTicket(id);
       router.push("/tickets");
     } catch (err) {
       console.error("Close error:", err);
@@ -112,58 +82,54 @@ export default function TicketDetail({ params }) {
   }
 
   if (loading) {
-    return (
-      <div className="p-10 text-yellow-400">
-        Loading chat...
-      </div>
-    );
+    return <div className="p-10 text-yellow-400">Loading chat...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex flex-col">
-      
-      {/* HEADER */}
-      <div className="p-4 border-b border-neutral-800 flex justify-between items-center">
+    <div className="flex min-h-screen flex-col bg-black text-white">
+      <div className="flex items-center justify-between border-b border-neutral-800 p-4">
         <button
+          type="button"
           onClick={() => router.push("/tickets")}
           className="text-yellow-400"
         >
-          ← Back
+          Back
         </button>
 
-        <h1 className="text-yellow-400 font-bold">
-          Ticket #{id}
-        </h1>
+        <h1 className="font-bold text-yellow-400">Ticket #{id}</h1>
 
         <button
-          onClick={closeTicket}
-          className="bg-red-600 px-3 py-1 rounded text-sm"
+          type="button"
+          onClick={handleCloseTicket}
+          className="rounded bg-red-600 px-3 py-1 text-sm"
         >
-          Close ❌
+          Close
         </button>
       </div>
 
-      {/* CHAT (COMPONENT USE) */}
       <div ref={chatRef} className="flex-1 overflow-y-auto">
-        <ConversationViewer messages={messages} BASE={BASE} />
+        <ConversationViewer
+          messages={messages}
+          baseUrl={getApiBase()}
+        />
       </div>
 
-      {/* INPUT */}
-      <div className="p-4 border-t border-neutral-800">
+      <div className="border-t border-neutral-800 p-4">
         <textarea
           value={reply}
           onChange={(e) => setReply(e.target.value)}
-          onKeyDown={handleKey}
+          onKeyDown={handleKeyDown}
           placeholder="Type reply..."
-          className="w-full p-3 rounded bg-neutral-900 mb-3 outline-none"
+          className="mb-3 w-full rounded bg-neutral-900 p-3 outline-none"
         />
 
         <button
-          onClick={sendReply}
+          type="button"
+          onClick={handleSendReply}
           disabled={sending}
-          className="bg-yellow-600 hover:bg-yellow-700 px-6 py-2 rounded text-black font-semibold"
+          className="rounded bg-yellow-600 px-6 py-2 font-semibold text-black hover:bg-yellow-700"
         >
-          {sending ? "Sending..." : "Send 🚀"}
+          {sending ? "Sending..." : "Send reply"}
         </button>
       </div>
     </div>

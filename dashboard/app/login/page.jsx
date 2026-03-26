@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { login } from "../../lib/api";
 
 export default function Login() {
   const router = useRouter();
@@ -10,22 +11,15 @@ export default function Login() {
 
   async function doLogin() {
     try {
-      const res = await fetch("https://discord-ai-bot-1-p5hk.onrender.com/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: user, password: pass })
-      });
-
-      const data = await res.json();
+      const data = await login(user, pass);
 
       if (data.access_token) {
-        localStorage.setItem("token", data.access_token);
         router.push("/");
       } else {
         alert("Login failed");
       }
     } catch (err) {
-      alert("Server not running on port 8081");
+      alert("Unable to reach the login service.");
     }
   }
 

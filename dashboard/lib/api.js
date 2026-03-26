@@ -1,31 +1,36 @@
-const API_BASE = "https://discord-ai-bot-1-p5hk.onrender.com";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://discord-ai-bot-1-p5hk.onrender.com";
 
-// 🔐 GET TOKEN
 function getToken() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
   return localStorage.getItem("token");
 }
 
-// 🚀 CORE FETCH WRAPPER
 async function apiFetch(endpoint, options = {}) {
   const token = getToken();
+  const headers = {
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
 
-  const res = await fetch(${API_BASE}${endpoint}, {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: Bearer ${token}, // ✅ FIXED
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
-  // ❌ handle unauthorized
   if (res.status === 401) {
-    localStorage.removeItem("token");
-    window.location.href = "/login";
-    return;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
   }
 
-  // ❌ handle errors
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || "API error");
@@ -34,7 +39,9 @@ async function apiFetch(endpoint, options = {}) {
   return res.json();
 }
 
-// 📡 APIs
+export function getApiBase() {
+  return API_BASE;
+}
 
 export function getServers() {
   return apiFetch("/api/server_map");
@@ -45,7 +52,7 @@ export function getTickets() {
 }
 
 export function getConversation(ticketId) {
-  return apiFetch(/api/conversation/${ticketId});
+  return apiFetch(`/api/conversation/${ticketId}`);
 }
 
 export function sendReply(ticketId, message) {
@@ -71,9 +78,8 @@ export function getAdminLogs() {
   return apiFetch("/api/admin_logs");
 }
 
-// 🔐 LOGIN
 export async function login(username, password) {
-  const res = await fetch(${API_BASE}/api/login, {
+  const res = await fetch(`${API_BASE}/api/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -81,7 +87,7 @@ export async function login(username, password) {
 
   const data = await res.json();
 
-  if (data.access_token) {
+  if (data.access_token && typeof window !== "undefined") {
     localStorage.setItem("token", data.access_token);
   }
 

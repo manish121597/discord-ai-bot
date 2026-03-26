@@ -16,9 +16,10 @@ export default function TicketsPage() {
       const list = data.tickets || [];
       setTickets(list);
       setFiltered(list);
-      setLoading(false);
     } catch (err) {
       console.error("Error loading tickets:", err);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -28,10 +29,9 @@ export default function TicketsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // 🔍 search filter
   useEffect(() => {
-    const filteredList = tickets.filter((t) =>
-      t.ticket_id.toLowerCase().includes(search.toLowerCase())
+    const filteredList = tickets.filter((ticket) =>
+      String(ticket.ticket_id).toLowerCase().includes(search.toLowerCase())
     );
     setFiltered(filteredList);
   }, [search, tickets]);
@@ -43,26 +43,19 @@ export default function TicketsPage() {
   }
 
   if (loading) {
-    return (
-      <div className="p-10 text-yellow-400">
-        Loading tickets...
-      </div>
-    );
+    return <div className="p-10 text-yellow-400">Loading tickets...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-black text-yellow-400 p-10">
-      <h1 className="text-3xl mb-6">
-        📩 Live Support Tickets
-      </h1>
+    <div className="min-h-screen bg-black p-10 text-yellow-400">
+      <h1 className="mb-6 text-3xl">Live Support Tickets</h1>
 
-      {/* 🔍 Search */}
       <input
         type="text"
         placeholder="Search ticket id..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="mb-6 w-full p-3 rounded bg-neutral-900 border border-yellow-600 outline-none"
+        className="mb-6 w-full rounded border border-yellow-600 bg-neutral-900 p-3 outline-none"
       />
 
       {!filtered.length && (
@@ -73,31 +66,26 @@ export default function TicketsPage() {
         {filtered.map((ticket) => (
           <Link
             key={ticket.ticket_id}
-            href={/tickets/${ticket.ticket_id}}
-            className="block p-4 bg-neutral-900 rounded-xl border border-yellow-700 hover:bg-neutral-800 transition"
+            href={`/tickets/${ticket.ticket_id}`}
+            className="block rounded-xl border border-yellow-700 bg-neutral-900 p-4 transition hover:bg-neutral-800"
           >
-            <div className="flex justify-between items-center">
-              <p className="font-bold">
-                #{ticket.ticket_id}
-              </p>
+            <div className="flex items-center justify-between">
+              <p className="font-bold">#{ticket.ticket_id}</p>
               <span className={getStatusColor(ticket.status)}>
                 {ticket.status}
               </span>
             </div>
 
-            <p className="text-sm mt-2 text-yellow-300">
-              {ticket.last_message}
+            <p className="mt-2 text-sm text-yellow-300">
+              {ticket.last_message || "No messages yet"}
             </p>
 
-            <p className="text-xs mt-2">
-              Messages: {ticket.count}
-            </p>
+            <p className="mt-2 text-xs">Messages: {ticket.count}</p>
           </Link>
         ))}
       </div>
 
-      {/* ⚡ Auto refresh indicator */}
-      <p className="text-xs mt-6 text-yellow-600">
+      <p className="mt-6 text-xs text-yellow-600">
         Auto-refresh every 5 seconds
       </p>
     </div>

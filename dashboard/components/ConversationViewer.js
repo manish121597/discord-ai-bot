@@ -1,52 +1,79 @@
 "use client";
 
-export default function ConversationViewer({ messages, BASE }) {
+function getMessageText(message) {
+  return message.content || message.text || "";
+}
+
+function getAttachmentUrl(base, attachment) {
+  if (!attachment) {
+    return "";
+  }
+
+  if (typeof attachment === "string") {
+    return attachment.startsWith("http") ? attachment : `${base}/${attachment}`;
+  }
+
+  if (attachment.url) {
+    return attachment.url.startsWith("http")
+      ? attachment.url
+      : `${base}${attachment.url.startsWith("/") ? "" : "/"}${attachment.url}`;
+  }
+
+  return "";
+}
+
+export default function ConversationViewer({ messages, baseUrl }) {
   return (
-    <div className="flex-1 p-4 overflow-y-auto">
+    <div className="flex-1 overflow-y-auto p-4">
       {messages.length === 0 && (
-        <p className="text-yellow-500">
-          No messages yet
-        </p>
+        <p className="text-yellow-500">No messages yet</p>
       )}
 
-      {messages.map((m, i) => {
-        const isAdmin = m.author === "ADMIN";
+      {messages.map((message, index) => {
+        const author = message.author || message.role || "Unknown";
+        const isAdmin = author === "ADMIN" || author === "assistant";
 
         return (
           <div
-            key={i}
-            className={flex mb-4 ${
-              isAdmin ? "justify-end" : "justify-start"
-            }}
+            key={index}
+            className={`mb-4 flex ${isAdmin ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={max-w-[70%] p-3 rounded-xl text-sm ${
+              className={`max-w-[70%] rounded-xl p-3 text-sm ${
                 isAdmin
                   ? "bg-yellow-500 text-black"
                   : "bg-neutral-800 text-white"
-              }}
+              }`}
             >
-              <div className="text-xs opacity-60 mb-1">
-                {isAdmin ? "ADMIN" : m.author}
+              <div className="mb-1 text-xs opacity-60">
+                {isAdmin ? "ADMIN" : author}
               </div>
 
-              {m.content && <div>{m.content}</div>}
+              <div>{getMessageText(message) || "No text content"}</div>
 
-              {/* 📎 ATTACHMENTS */}
-              {Array.isArray(m.attachments) &&
-                m.attachments.map((img, idx) => (
-                  <a
-                    key={idx}
-                    href={${BASE}/${img}}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <img
-                      src={${BASE}/${img}}
-                      className="mt-2 rounded-lg max-h-60 border border-neutral-700 hover:scale-105 transition"
-                    />
-                  </a>
-                ))}
+              {Array.isArray(message.attachments) &&
+                message.attachments.map((attachment, idx) => {
+                  const url = getAttachmentUrl(baseUrl, attachment);
+
+                  if (!url) {
+                    return null;
+                  }
+
+                  return (
+                    <a
+                      key={idx}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img
+                        src={url}
+                        alt={`Attachment ${idx + 1}`}
+                        className="mt-2 max-h-60 rounded-lg border border-neutral-700"
+                      />
+                    </a>
+                  );
+                })}
             </div>
           </div>
         );
