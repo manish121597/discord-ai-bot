@@ -1,14 +1,17 @@
 import "./globals.css";
+import AppShell from "../components/AppShell";
 
 export const metadata = {
-  title: "Admin Dashboard",
-  description: "Donde Ticket Manager Admin Panel",
+  title: "Donde AI Ops",
+  description: "Premium AI support operations dashboard",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" data-theme="dark">
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

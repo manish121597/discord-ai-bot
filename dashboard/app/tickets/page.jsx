@@ -1,93 +1,108 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { getTickets } from "../../lib/api";
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState([]);
-  const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-
-  async function loadTickets() {
-    try {
-      const data = await getTickets();
-      const list = data.tickets || [];
-      setTickets(list);
-      setFiltered(list);
-    } catch (err) {
-      console.error("Error loading tickets:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
   useEffect(() => {
+    async function loadTickets() {
+      try {
+        const data = await getTickets();
+        setTickets(data.tickets || []);
+      } catch (error) {
+        console.error("Error loading tickets:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
     loadTickets();
     const interval = setInterval(loadTickets, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const filteredList = tickets.filter((ticket) =>
-      String(ticket.ticket_id).toLowerCase().includes(search.toLowerCase())
-    );
-    setFiltered(filteredList);
-  }, [search, tickets]);
+  const filteredTickets = useMemo(() => {
+    return tickets.filter((ticket) => {
+      const searchMatch = [ticket.ticket_id, ticket.user_name, ticket.last_message, ticket.intent, ticket.category]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(search.toLowerCase());
 
-  function getStatusColor(status) {
-    if (status === "OPEN") return "text-green-400";
-    if (status === "CLOSED") return "text-red-400";
-    return "text-yellow-400";
-  }
-
-  if (loading) {
-    return <div className="p-10 text-yellow-400">Loading tickets...</div>;
-  }
+      const statusMatch = statusFilter === "ALL" || ticket.status === statusFilter;
+      return searchMatch && statusMatch;
+    });
+  }, [search, statusFilter, tickets]);
 
   return (
-    <div className="min-h-screen bg-black p-10 text-yellow-400">
-      <h1 className="mb-6 text-3xl">Live Support Tickets</h1>
-
-      <input
-        type="text"
-        placeholder="Search ticket id..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="mb-6 w-full rounded border border-yellow-600 bg-neutral-900 p-3 outline-none"
-      />
-
-      {!filtered.length && (
-        <p className="text-yellow-500">No matching tickets.</p>
-      )}
-
-      <div className="grid gap-4">
-        {filtered.map((ticket) => (
-          <Link
-            key={ticket.ticket_id}
-            href={`/tickets/${ticket.ticket_id}`}
-            className="block rounded-xl border border-yellow-700 bg-neutral-900 p-4 transition hover:bg-neutral-800"
-          >
-            <div className="flex items-center justify-between">
-              <p className="font-bold">#{ticket.ticket_id}</p>
-              <span className={getStatusColor(ticket.status)}>
-                {ticket.status}
-              </span>
-            </div>
-
-            <p className="mt-2 text-sm text-yellow-300">
-              {ticket.last_message || "No messages yet"}
-            </p>
-
-            <p className="mt-2 text-xs">Messages: {ticket.count}</p>
-          </Link>
-        ))}
+    <div className="glass-card">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Live support operations</p>
+          <h3>Ticket command center</h3>
+        </div>
+        <span className="pill">Auto-refresh every 5 seconds</span>
       </div>
 
-      <p className="mt-6 text-xs text-yellow-600">
-        Auto-refresh every 5 seconds
-      </p>
+      <div className="filter-row" style={{ marginTop: 18, marginBottom: 18 }}>
+        <input
+          className="search-input"
+          placeholder="Search by ticket, user, intent, category, or recent message"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <select
+          className="select-input"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+        >
+          <option value="ALL">All statuses</option>
+          <option value="OPEN">Open</option>
+          <option value="ESCALATED">Escalated</option>
+          <option value="PAUSED">Paused</option>
+          <option value="CLOSED">Closed</option>
+        </select>
+      </div>
+
+      {loading ? <p className="empty-state">Loading support tickets...</p> : null}
+
+      {!loading && !filteredTickets.length ? (
+        <p className="empty-state">No tickets matched that filter.</p>
+      ) : (
+        <div className="ticket-grid">
+          {filteredTickets.map((ticket) => (
+            <Link key={ticket.ticket_id} href={`/tickets/${ticket.ticket_id}`} className="ticket-card">
+              <div className="ticket-title-row">
+                <div>
+                  <p className="eyebrow">{ticket.channel_name}</p>
+                  <h3>#{ticket.ticket_id}</h3>
+                </div>
+                <span className={`status-pill ${ticket.status}`}>{ticket.status}</span>
+              </div>
+
+              <p className="ticket-preview">{ticket.last_message || "No conversation preview available."}</p>
+
+              <div className="meta-row">
+                <span className="pill">{ticket.intent || "query"}</span>
+                <span className="pill">{ticket.category || "general"}</span>
+              </div>
+
+              <div className="meta-row" style={{ marginTop: 14 }}>
+                <span className="subtle-text">{ticket.user_name}</span>
+                <span className="subtle-text">
+                  {ticket.count} msgs · {ticket.attachments_count} files
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

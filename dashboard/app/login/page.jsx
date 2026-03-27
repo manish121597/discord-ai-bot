@@ -1,5 +1,6 @@
 "use client";
 
+import { Bot, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { login } from "../../lib/api";
@@ -8,38 +9,70 @@ export default function Login() {
   const router = useRouter();
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function doLogin() {
+  async function doLogin(event) {
+    event.preventDefault();
     try {
+      setLoading(true);
+      setError("");
       const data = await login(user, pass);
-
       if (data.access_token) {
         router.push("/");
-      } else {
-        alert("Login failed");
+        return;
       }
+      setError("Login failed. Please check your credentials.");
     } catch (err) {
-      alert("Unable to reach the login service.");
+      setError("Unable to reach the login service right now.");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <div style={{ background: "black", height: "100vh", display: "flex", justifyContent: "center", alignItems: "center"}}>
-      <div style={{ background: "#111", padding: "40px", borderRadius: "10px", width: "320px", border: "1px solid gold" }}>
-        <h2 style={{ color: "gold", marginBottom: "20px" }}>Admin Login</h2>
+    <div className="login-page">
+      <div className="login-card">
+        <p className="eyebrow">AI support platform</p>
+        <div className="brand-mark">
+          <Bot size={24} />
+        </div>
+        <h1 className="login-title">Welcome back to Donde AI Ops</h1>
+        <p className="muted-block">
+          Monitor premium support conversations, intervene in live tickets, and keep the human
+          escalation pipeline under control from one polished dashboard.
+        </p>
 
-        <input value={user} onChange={(e)=>setUser(e.target.value)} placeholder="Username"
-          style={{ width:"100%", padding:"10px", marginBottom:"10px", background:"#222", border:"1px solid #333", color:"white" }}
-        />
+        <div className="inline-controls" style={{ marginTop: 18 }}>
+          <span className="pill">
+            <ShieldCheck size={15} />
+            Admin role access
+          </span>
+          <span className="pill">
+            <LockKeyhole size={15} />
+            JWT-protected session
+          </span>
+        </div>
 
-        <input type="password" value={pass} onChange={(e)=>setPass(e.target.value)} placeholder="Password"
-          style={{ width:"100%", padding:"10px", background:"#222", border:"1px solid #333", color:"white" }}
-        />
-
-        <button onClick={doLogin}
-          style={{ marginTop:"15px", width:"100%", padding:"10px", background:"gold", border:"none", color:"black", fontWeight:"bold" }}>
-          Login
-        </button>
+        <form className="login-form" onSubmit={doLogin}>
+          <input
+            className="login-input"
+            placeholder="Admin username"
+            value={user}
+            onChange={(event) => setUser(event.target.value)}
+          />
+          <input
+            className="login-input"
+            type="password"
+            placeholder="Password"
+            value={pass}
+            onChange={(event) => setPass(event.target.value)}
+          />
+          {error ? <p className="empty-state">{error}</p> : null}
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? "Signing in..." : "Enter dashboard"}
+          </button>
+        </form>
       </div>
     </div>
   );

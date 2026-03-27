@@ -2,7 +2,561 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-body: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+  --font-display: "Bahnschrift", "Trebuchet MS", "Segoe UI Variable", sans-serif;
+  --bg: #0a1020;
+  --bg-elevated: rgba(14, 22, 41, 0.78);
+  --surface: rgba(17, 26, 48, 0.72);
+  --surface-strong: #131d33;
+  --border: rgba(122, 153, 255, 0.18);
+  --text: #eef4ff;
+  --muted: #98a6c6;
+  --primary: #68b4ff;
+  --secondary: #8f7dff;
+  --success: #4ade80;
+  --danger: #fb7185;
+  --shadow: 0 24px 80px rgba(4, 10, 24, 0.45);
+}
+
+html[data-theme="light"] {
+  --bg: #eef3ff;
+  --bg-elevated: rgba(255, 255, 255, 0.88);
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-strong: #ffffff;
+  --border: rgba(88, 115, 202, 0.18);
+  --text: #11203a;
+  --muted: #61708f;
+  --primary: #2563eb;
+  --secondary: #7c3aed;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --shadow: 0 22px 50px rgba(93, 118, 167, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
-  background: black;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(104, 180, 255, 0.18), transparent 34%),
+    radial-gradient(circle at top right, rgba(143, 125, 255, 0.16), transparent 28%),
+    linear-gradient(180deg, var(--bg) 0%, #050915 100%);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 280px 1fr;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  justify-content: space-between;
+  border-right: 1px solid var(--border);
+  background: rgba(7, 12, 24, 0.78);
+  backdrop-filter: blur(22px);
+  padding: 28px 18px;
+}
+
+.brand-card,
+.trust-card,
+.panel,
+.metric-card,
+.hero-card,
+.ticket-card,
+.chat-shell,
+.login-card,
+.glass-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.brand-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 24px;
+  padding: 18px;
+}
+
+.brand-mark {
+  display: grid;
+  height: 52px;
+  width: 52px;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   color: white;
+}
+
+.brand-card h1,
+.topbar h2,
+.hero-card h1,
+.panel h3 {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  margin: 28px 0;
+}
+
+.nav-link,
+.ghost-button,
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 18px;
+  border: 1px solid transparent;
+  padding: 14px 16px;
+  transition: 180ms ease;
+}
+
+.nav-link:hover,
+.ghost-button:hover,
+.theme-toggle:hover {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.nav-link.active {
+  border-color: rgba(104, 180, 255, 0.26);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(124, 58, 237, 0.12));
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.trust-card {
+  display: flex;
+  gap: 12px;
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.trust-card p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.app-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  padding: 28px 34px 18px;
+}
+
+.topbar h2 {
+  max-width: 680px;
+  font-size: clamp(1.2rem, 2vw, 2rem);
+}
+
+.page-container {
+  padding: 26px 34px 40px;
+}
+
+.hero-grid,
+.metrics-grid,
+.content-grid,
+.two-column-grid,
+.ticket-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.hero-grid {
+  grid-template-columns: 1.65fr 1fr;
+  margin-bottom: 22px;
+}
+
+.hero-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  padding: 28px;
+}
+
+.hero-card::before {
+  content: "";
+  position: absolute;
+  inset: auto -40px -60px auto;
+  height: 180px;
+  width: 180px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(104, 180, 255, 0.34), transparent 70%);
+}
+
+.hero-card h1 {
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  line-height: 1;
+  margin-bottom: 12px;
+}
+
+.hero-copy {
+  max-width: 720px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.primary-button,
+.secondary-button {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 12px 18px;
+  transition: 180ms ease;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: white;
+}
+
+.secondary-button {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 22px;
+}
+
+.metric-card {
+  border-radius: 24px;
+  padding: 20px;
+}
+
+.metric-label,
+.metric-detail,
+.subtle-text,
+.empty-state,
+.message-time {
+  color: var(--muted);
+}
+
+.metric-value {
+  margin: 10px 0 8px;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-family: var(--font-display);
+}
+
+.panel,
+.glass-card,
+.chat-shell {
+  border-radius: 28px;
+  padding: 22px;
+}
+
+.panel-header,
+.section-header,
+.ticket-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.content-grid {
+  grid-template-columns: 1.4fr 1fr;
+}
+
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.bar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.bar-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+}
+
+.ticket-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ticket-card {
+  border-radius: 24px;
+  padding: 22px;
+  transition: 180ms ease;
+}
+
+.ticket-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(104, 180, 255, 0.34);
+}
+
+.ticket-title-row,
+.meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ticket-preview {
+  margin: 14px 0;
+  line-height: 1.6;
+}
+
+.pill,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-pill.OPEN {
+  background: rgba(74, 222, 128, 0.14);
+  color: var(--success);
+}
+
+.status-pill.CLOSED {
+  background: rgba(251, 113, 133, 0.12);
+  color: var(--danger);
+}
+
+.status-pill.ESCALATED,
+.status-pill.PAUSED {
+  background: rgba(104, 180, 255, 0.12);
+  color: var(--primary);
+}
+
+.inline-controls,
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.search-input,
+.select-input,
+.composer,
+.login-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  padding: 14px 16px;
+}
+
+.search-input::placeholder,
+.composer::placeholder,
+.login-input::placeholder {
+  color: var(--muted);
+}
+
+.two-column-grid {
+  grid-template-columns: 1.35fr 0.95fr;
+  align-items: start;
+}
+
+.chat-shell {
+  display: flex;
+  min-height: calc(100vh - 220px);
+  flex-direction: column;
+}
+
+.conversation-scroll {
+  min-height: 420px;
+  max-height: 62vh;
+  overflow: auto;
+  padding-right: 8px;
+}
+
+.message-row {
+  display: flex;
+  margin-bottom: 18px;
+}
+
+.message-row.admin {
+  justify-content: flex-end;
+}
+
+.message-bubble {
+  max-width: min(78%, 760px);
+  border-radius: 24px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.message-row.admin .message-bubble {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(124, 58, 237, 0.2));
+}
+
+.message-author {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.message-text {
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.attachment-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.attachment-image {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+}
+
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 30px;
+}
+
+.login-card {
+  width: min(480px, 100%);
+  border-radius: 32px;
+  padding: 34px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.login-title {
+  margin: 12px 0 10px;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.2rem);
+}
+
+.muted-block {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+@media (max-width: 1180px) {
+  .hero-grid,
+  .content-grid,
+  .two-column-grid,
+  .metrics-grid,
+  .ticket-grid,
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: relative;
+    height: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .topbar,
+  .page-container {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .hero-card,
+  .panel,
+  .chat-shell,
+  .login-card,
+  .metric-card,
+  .ticket-card {
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .message-bubble {
+    max-width: 100%;
+  }
 }

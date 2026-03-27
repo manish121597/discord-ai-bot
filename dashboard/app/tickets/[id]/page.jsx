@@ -1,20 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, SendHorizontal, ShieldAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import ConversationViewer from "../../../components/ConversationViewer";
-import {
-  closeTicket,
-  getApiBase,
-  getConversation,
-  sendReply,
-} from "../../../lib/api";
+import { closeTicket, getApiBase, getConversation, sendReply } from "../../../lib/api";
 
 export default function TicketDetail({ params }) {
   const { id } = params;
   const router = useRouter();
   const chatRef = useRef(null);
 
+  const [ticket, setTicket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(true);
@@ -23,9 +20,10 @@ export default function TicketDetail({ params }) {
   async function loadTicket() {
     try {
       const data = await getConversation(id);
+      setTicket(data);
       setMessages(data.messages || []);
-    } catch (err) {
-      console.error("Load error:", err);
+    } catch (error) {
+      console.error("Load error:", error);
     } finally {
       setLoading(false);
       setTimeout(() => {
@@ -53,10 +51,23 @@ export default function TicketDetail({ params }) {
       await sendReply(id, reply.trim());
       setReply("");
       await loadTicket();
-    } catch (err) {
-      console.error("Reply error:", err);
+    } catch (error) {
+      console.error("Reply error:", error);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleCloseTicket() {
+    if (!window.confirm("Close this ticket and archive the thread on Discord?")) {
+      return;
+    }
+
+    try {
+      await closeTicket(id);
+      router.push("/tickets");
+    } catch (error) {
+      console.error("Close error:", error);
     }
   }
 
@@ -67,71 +78,78 @@ export default function TicketDetail({ params }) {
     }
   }
 
-  async function handleCloseTicket() {
-    const confirmClose = window.confirm("Are you sure you want to close this ticket?");
-    if (!confirmClose) {
-      return;
-    }
-
-    try {
-      await closeTicket(id);
-      router.push("/tickets");
-    } catch (err) {
-      console.error("Close error:", err);
-    }
-  }
-
   if (loading) {
-    return <div className="p-10 text-yellow-400">Loading chat...</div>;
+    return <div className="panel">Loading conversation...</div>;
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-black text-white">
-      <div className="flex items-center justify-between border-b border-neutral-800 p-4">
-        <button
-          type="button"
-          onClick={() => router.push("/tickets")}
-          className="text-yellow-400"
-        >
-          Back
-        </button>
+    <div className="two-column-grid">
+      <section className="chat-shell">
+        <div className="ticket-toolbar" style={{ marginBottom: 18 }}>
+          <button type="button" className="secondary-button" onClick={() => router.push("/tickets")}>
+            <ArrowLeft size={16} />
+            <span>Back to tickets</span>
+          </button>
+          <span className={`status-pill ${ticket?.status}`}>{ticket?.status || "OPEN"}</span>
+        </div>
 
-        <h1 className="font-bold text-yellow-400">Ticket #{id}</h1>
+        <div ref={chatRef} style={{ flex: 1 }}>
+          <ConversationViewer messages={messages} baseUrl={getApiBase()} />
+        </div>
 
-        <button
-          type="button"
-          onClick={handleCloseTicket}
-          className="rounded bg-red-600 px-3 py-1 text-sm"
-        >
-          Close
-        </button>
-      </div>
+        <div style={{ marginTop: 18 }}>
+          <textarea
+            value={reply}
+            onChange={(event) => setReply(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Write a polished admin reply..."
+            className="composer"
+            rows={4}
+          />
+          <div className="inline-controls" style={{ marginTop: 12 }}>
+            <button type="button" className="primary-button" onClick={handleSendReply} disabled={sending}>
+              <SendHorizontal size={16} />
+              <span>{sending ? "Sending..." : "Send reply"}</span>
+            </button>
+            <button type="button" className="secondary-button" onClick={handleCloseTicket}>
+              Close ticket
+            </button>
+          </div>
+        </div>
+      </section>
 
-      <div ref={chatRef} className="flex-1 overflow-y-auto">
-        <ConversationViewer
-          messages={messages}
-          baseUrl={getApiBase()}
-        />
-      </div>
+      <aside className="panel">
+        <div className="section-header">
+          <div>
+            <p className="eyebrow">Ticket intelligence</p>
+            <h3>#{ticket?.ticket_id}</h3>
+          </div>
+          <ShieldAlert size={18} />
+        </div>
 
-      <div className="border-t border-neutral-800 p-4">
-        <textarea
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type reply..."
-          className="mb-3 w-full rounded bg-neutral-900 p-3 outline-none"
-        />
-
-        <button
-          type="button"
-          onClick={handleSendReply}
-          disabled={sending}
-          className="rounded bg-yellow-600 px-6 py-2 font-semibold text-black hover:bg-yellow-700"
-        >
-          {sending ? "Sending..." : "Send reply"}
-        </button>
-      </div>
+        <div className="bar-list">
+          <div>
+            <p className="eyebrow">Detected intent</p>
+            <strong>{ticket?.meta?.intent || "query"}</strong>
+          </div>
+          <div>
+            <p className="eyebrow">Category</p>
+            <strong>{ticket?.meta?.category || "general"}</strong>
+          </div>
+          <div>
+            <p className="eyebrow">Stake username</p>
+            <strong>{ticket?.meta?.username || "Not captured yet"}</strong>
+          </div>
+          <div>
+            <p className="eyebrow">Files attached</p>
+            <strong>{ticket?.meta?.attachments_total || 0}</strong>
+          </div>
+          <div>
+            <p className="eyebrow">Customer</p>
+            <strong>{ticket?.meta?.display_name || ticket?.meta?.user_name || "Unknown user"}</strong>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

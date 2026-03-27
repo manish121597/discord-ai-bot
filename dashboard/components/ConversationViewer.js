@@ -1,7 +1,7 @@
 "use client";
 
 function getMessageText(message) {
-  return message.content || message.text || "";
+  return message.text || message.content || "";
 }
 
 function getAttachmentUrl(base, attachment) {
@@ -24,56 +24,46 @@ function getAttachmentUrl(base, attachment) {
 
 export default function ConversationViewer({ messages, baseUrl }) {
   return (
-    <div className="flex-1 overflow-y-auto p-4">
-      {messages.length === 0 && (
-        <p className="text-yellow-500">No messages yet</p>
-      )}
+    <div className="conversation-scroll">
+      {messages.length === 0 ? <p className="empty-state">No messages yet</p> : null}
 
       {messages.map((message, index) => {
         const author = message.author || message.role || "Unknown";
-        const isAdmin = author === "ADMIN" || author === "assistant";
+        const adminLike = ["ADMIN", "assistant", "X-Boty"].includes(author) || message.role === "assistant";
 
         return (
-          <div
-            key={index}
-            className={`mb-4 flex ${isAdmin ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[70%] rounded-xl p-3 text-sm ${
-                isAdmin
-                  ? "bg-yellow-500 text-black"
-                  : "bg-neutral-800 text-white"
-              }`}
-            >
-              <div className="mb-1 text-xs opacity-60">
-                {isAdmin ? "ADMIN" : author}
+          <div key={index} className={`message-row ${adminLike ? "admin" : ""}`}>
+            <div className="message-bubble">
+              <div className="message-author">
+                {adminLike ? author : `${author} · ${message.intent || "user"}`}
               </div>
+              <div className="message-text">{getMessageText(message) || "No text content"}</div>
 
-              <div>{getMessageText(message) || "No text content"}</div>
+              {Array.isArray(message.attachments) && message.attachments.length > 0 ? (
+                <div className="attachment-grid">
+                  {message.attachments.map((attachment, attachmentIndex) => {
+                    const url = getAttachmentUrl(baseUrl, attachment);
+                    if (!url) {
+                      return null;
+                    }
+                    return (
+                      <a key={attachmentIndex} href={url} target="_blank" rel="noreferrer">
+                        <img
+                          src={url}
+                          alt={`Attachment ${attachmentIndex + 1}`}
+                          className="attachment-image"
+                        />
+                      </a>
+                    );
+                  })}
+                </div>
+              ) : null}
 
-              {Array.isArray(message.attachments) &&
-                message.attachments.map((attachment, idx) => {
-                  const url = getAttachmentUrl(baseUrl, attachment);
-
-                  if (!url) {
-                    return null;
-                  }
-
-                  return (
-                    <a
-                      key={idx}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <img
-                        src={url}
-                        alt={`Attachment ${idx + 1}`}
-                        className="mt-2 max-h-60 rounded-lg border border-neutral-700"
-                      />
-                    </a>
-                  );
-                })}
+              {message.timestamp ? (
+                <div className="message-time" style={{ marginTop: 10 }}>
+                  {new Date(message.timestamp).toLocaleString()}
+                </div>
+              ) : null}
             </div>
           </div>
         );

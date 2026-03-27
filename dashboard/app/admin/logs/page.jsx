@@ -9,44 +9,42 @@ export default function AdminLogs() {
   useEffect(() => {
     getAdminLogs()
       .then((data) => setLogs(data.logs || []))
-      .catch((err) => console.error("Failed to load admin logs:", err));
+      .catch((error) => console.error("Failed to load admin logs:", error));
   }, []);
 
   return (
-    <div className="p-10 text-white max-w-5xl mx-auto">
-      <h1 className="text-3xl text-yellow-400 mb-6">
-        🧠 Admin Activity Logs
-      </h1>
-
-      {!logs.length && (
-        <p className="text-gray-400">No admin activity yet.</p>
-      )}
-
-      {logs.map((log, i) => (
-        <div
-          key={i}
-          className="bg-neutral-900 p-4 rounded mb-3 border border-neutral-800"
-        >
-          <div className="flex justify-between">
-            <span className="font-semibold text-yellow-300">
-              {log.action}
-            </span>
-            <span className="text-xs text-gray-400">
-              {new Date(log.time).toLocaleString()}
-            </span>
-          </div>
-
-          <div className="text-sm mt-1">
-            Ticket ID: <b>{log.ticket_id}</b>
-          </div>
-
-          {log.message && (
-            <div className="text-sm text-gray-300 mt-2">
-              “{log.message}”
-            </div>
-          )}
+    <div className="panel">
+      <div className="section-header">
+        <div>
+          <p className="eyebrow">Audit trail</p>
+          <h3>Admin activity logs</h3>
         </div>
-      ))}
+        <span className="pill">{logs.length} entries</span>
+      </div>
+
+      {!logs.length ? (
+        <p className="empty-state" style={{ marginTop: 18 }}>
+          No admin activity yet.
+        </p>
+      ) : (
+        <div className="bar-list" style={{ marginTop: 18 }}>
+          {logs.map((log, index) => (
+            <div key={index} className="ticket-card">
+              <div className="ticket-title-row">
+                <strong>{log.action}</strong>
+                <span className="pill">{new Date(log.time).toLocaleString()}</span>
+              </div>
+              <p className="ticket-preview">
+                Ticket #{log.ticket_id}
+                {log.message ? ` · ${log.message}` : ""}
+              </p>
+              <div className="meta-row">
+                <span className="subtle-text">Admin: {log.admin}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

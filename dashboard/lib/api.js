@@ -51,6 +51,10 @@ export function getTickets() {
   return apiFetch("/api/tickets");
 }
 
+export function getOverview() {
+  return apiFetch("/api/overview");
+}
+
 export function getConversation(ticketId) {
   return apiFetch(`/api/conversation/${ticketId}`);
 }
@@ -76,6 +80,13 @@ export function closeTicket(ticketId) {
 
 export function getAdminLogs() {
   return apiFetch("/api/admin_logs");
+}
+
+export function logout() {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("token");
+    window.location.href = "/login";
+  }
 }
 
 export async function login(username, password) {
