@@ -6,10 +6,13 @@ import {
   Activity,
   Bot,
   LayoutDashboard,
+  Menu,
   LogOut,
   MessagesSquare,
+  X,
   ShieldCheck,
 } from "lucide-react";
+import { useState } from "react";
 import ThemeToggle from "./ThemeToggle";
 import { logout } from "../lib/api";
 
@@ -21,6 +24,7 @@ const navItems = [
 
 export default function AppShell({ children }) {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
 
   if (pathname === "/login") {
     return children;
@@ -28,15 +32,25 @@ export default function AppShell({ children }) {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <button type="button" className="mobile-menu-button" onClick={() => setOpen(true)}>
+        <Menu size={18} />
+        <span>Menu</span>
+      </button>
+
+      {open ? <div className="sidebar-overlay" onClick={() => setOpen(false)} /> : null}
+
+      <aside className={`sidebar ${open ? "open" : ""}`}>
         <div className="brand-card">
           <div className="brand-mark">
             <Bot size={22} />
           </div>
           <div>
-            <p className="eyebrow">Premium Support Stack</p>
+            <p className="eyebrow">Support Ops</p>
             <h1>Donde AI Ops</h1>
           </div>
+          <button type="button" className="mobile-close-button" onClick={() => setOpen(false)}>
+            <X size={18} />
+          </button>
         </div>
 
         <nav className="sidebar-nav">
@@ -48,6 +62,7 @@ export default function AppShell({ children }) {
                 key={item.href}
                 href={item.href}
                 className={`nav-link ${active ? "active" : ""}`}
+                onClick={() => setOpen(false)}
               >
                 <Icon size={18} />
                 <span>{item.label}</span>
@@ -60,8 +75,8 @@ export default function AppShell({ children }) {
           <div className="trust-card">
             <ShieldCheck size={18} />
             <div>
-              <strong>Admin secure zone</strong>
-              <p>Live ticket operations and human-in-the-loop review.</p>
+              <strong>Secure admin zone</strong>
+              <p>Live review, fast actions, clean oversight.</p>
             </div>
           </div>
 
@@ -75,8 +90,8 @@ export default function AppShell({ children }) {
       <main className="app-main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Production-ready dashboard</p>
-            <h2>AI support, ticket control, and live visibility in one place</h2>
+            <p className="eyebrow">Admin Dashboard</p>
+            <h2>Clean control over support and ticket flow</h2>
           </div>
           <ThemeToggle />
         </header>

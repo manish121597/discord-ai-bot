@@ -71,6 +71,11 @@ select {
   grid-template-columns: 280px 1fr;
 }
 
+.mobile-menu-button,
+.mobile-close-button {
+  display: none;
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -103,6 +108,7 @@ select {
   display: flex;
   align-items: center;
   gap: 14px;
+  justify-content: space-between;
   border-radius: 24px;
   padding: 18px;
 }
@@ -218,7 +224,7 @@ select {
 }
 
 .hero-grid {
-  grid-template-columns: 1.65fr 1fr;
+  grid-template-columns: 1.45fr 0.95fr;
   margin-bottom: 22px;
 }
 
@@ -240,8 +246,8 @@ select {
 }
 
 .hero-card h1 {
-  font-size: clamp(2rem, 4vw, 3.6rem);
-  line-height: 1;
+  font-size: clamp(1.9rem, 3.2vw, 3rem);
+  line-height: 1.05;
   margin-bottom: 12px;
 }
 
@@ -282,7 +288,7 @@ select {
 
 .metric-card {
   border-radius: 24px;
-  padding: 20px;
+  padding: 18px;
 }
 
 .metric-label,
@@ -295,7 +301,7 @@ select {
 
 .metric-value {
   margin: 10px 0 8px;
-  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-size: clamp(1.7rem, 2.4vw, 2.2rem);
   font-family: var(--font-display);
 }
 
@@ -370,8 +376,8 @@ select {
 }
 
 .ticket-preview {
-  margin: 14px 0;
-  line-height: 1.6;
+  margin: 12px 0;
+  line-height: 1.5;
 }
 
 .pill,
@@ -528,14 +534,61 @@ select {
   .content-grid,
   .two-column-grid,
   .metrics-grid,
-  .ticket-grid,
+  .ticket-grid {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
   }
 
   .sidebar {
-    position: relative;
-    height: auto;
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 60;
+    width: min(86vw, 320px);
+    transform: translateX(-102%);
+    transition: transform 180ms ease;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(2, 7, 20, 0.55);
+    backdrop-filter: blur(4px);
+  }
+
+  .mobile-menu-button,
+  .mobile-close-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 10px 14px;
+  }
+
+  .mobile-menu-button {
+    position: fixed;
+    left: 18px;
+    top: 16px;
+    z-index: 45;
+  }
+
+  .mobile-close-button {
+    margin-left: auto;
+  }
+
+  .topbar {
+    padding-top: 72px;
   }
 }
 
@@ -552,11 +605,36 @@ select {
   .login-card,
   .metric-card,
   .ticket-card {
-    padding: 18px;
+    padding: 16px;
     border-radius: 22px;
   }
 
   .message-bubble {
     max-width: 100%;
+  }
+
+  .topbar h2 {
+    font-size: 1.1rem;
+  }
+
+  .hero-card h1 {
+    font-size: 2rem;
+  }
+
+  .hero-actions,
+  .inline-controls,
+  .filter-row,
+  .ticket-toolbar,
+  .section-header,
+  .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .theme-toggle,
+  .ghost-button {
+    justify-content: center;
   }
 }

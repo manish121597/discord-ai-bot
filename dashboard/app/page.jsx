@@ -55,12 +55,10 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <p className="eyebrow">Sellable AI support product</p>
-          <h1>Premium ticket intelligence for fast-moving Discord communities</h1>
+          <p className="eyebrow">Overview</p>
+          <h1>Support ops, without the clutter.</h1>
           <p className="hero-copy">
-            Your chatbot now has structured support logic, stored conversation memory, richer
-            admin visibility, and a dashboard foundation that looks and feels like a serious SaaS
-            product instead of an internal prototype.
+            Monitor ticket load, spot escalations, and jump into live conversations quickly.
           </p>
           <div className="hero-actions">
             <Link href="/tickets" className="primary-button">
@@ -74,7 +72,7 @@ export default function Dashboard() {
 
         <div className="panel">
           <div className="panel-header">
-            <h3>System health</h3>
+            <h3>Live health</h3>
             <Sparkles size={18} />
           </div>
           <div className="bar-list">
@@ -111,27 +109,27 @@ export default function Dashboard() {
 
       <section className="metrics-grid">
         <MetricCard
-          label="Total tickets"
+          label="Tickets"
           value={stats.tickets_total || 0}
-          detail="Every tracked support conversation across the Discord system."
+          detail="Tracked conversations"
           accent="blue"
         />
         <MetricCard
-          label="Open tickets"
+          label="Open"
           value={stats.tickets_open || 0}
-          detail="Active conversations still waiting for bot or admin resolution."
+          detail="Need attention"
           accent="green"
         />
         <MetricCard
           label="Escalated"
           value={stats.tickets_escalated || 0}
-          detail="Tickets currently paused for human review or payout verification."
+          detail="Waiting for review"
           accent="purple"
         />
         <MetricCard
-          label="Stored messages"
+          label="Messages"
           value={stats.messages_total || 0}
-          detail="Persisted chat history available for admin review and exports."
+          detail="Stored history"
           accent="orange"
         />
       </section>
@@ -153,7 +151,7 @@ export default function Dashboard() {
       <section className="panel" style={{ marginTop: 18 }}>
         <div className="section-header">
           <div>
-            <p className="eyebrow">Recent operations</p>
+            <p className="eyebrow">Recent</p>
             <h3>Priority tickets</h3>
           </div>
           <Link href="/tickets" className="secondary-button">
@@ -163,7 +161,7 @@ export default function Dashboard() {
         </div>
 
         {loading ? (
-          <p className="empty-state">Loading premium support view...</p>
+          <p className="empty-state">Loading overview...</p>
         ) : (
           <div className="ticket-grid" style={{ marginTop: 18 }}>
             {tickets.map((ticket) => (

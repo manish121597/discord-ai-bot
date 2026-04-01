@@ -89,6 +89,21 @@ def summarize_ticket(ticket_id: str) -> Dict:
     status = tm.load_status_map().get(str(ticket_id), metadata.get("status", "OPEN"))
     last_message = conversation[-1] if conversation else {}
     attachment_count = sum(len(item.get("attachments") or []) for item in conversation)
+    first_user = next((item for item in conversation if item.get("role") == "user"), {})
+    last_user = next((item for item in reversed(conversation) if item.get("role") == "user"), {})
+    fallback_user = (
+        metadata.get("display_name")
+        or metadata.get("user_name")
+        or last_user.get("author")
+        or first_user.get("author")
+        or "Customer"
+    )
+    fallback_category = metadata.get("category") or last_message.get("metadata", {}).get("category")
+    if not fallback_category:
+        channel_name = metadata.get("channel_name") or ""
+        if "-" in channel_name:
+            fallback_category = channel_name.split("-", 1)[0]
+    fallback_category = fallback_category or "general"
 
     return {
         "ticket_id": str(ticket_id),
@@ -98,8 +113,8 @@ def summarize_ticket(ticket_id: str) -> Dict:
         "last_message_at": last_message.get("timestamp"),
         "attachments_count": attachment_count,
         "intent": metadata.get("intent") or last_message.get("intent") or "query",
-        "category": metadata.get("category") or "general",
-        "user_name": metadata.get("display_name") or metadata.get("user_name") or "Unknown user",
+        "category": fallback_category,
+        "user_name": fallback_user,
         "username": metadata.get("username"),
         "summary": metadata.get("last_summary") or "",
         "channel_name": metadata.get("channel_name") or f"ticket-{ticket_id}",
@@ -107,13 +122,22 @@ def summarize_ticket(ticket_id: str) -> Dict:
 
 
 def all_ticket_ids() -> List[str]:
-    if not CONVERSATIONS_DIR.exists():
-        return []
-    return [
-        file.name.replace("conv_", "").replace(".json", "")
-        for file in CONVERSATIONS_DIR.iterdir()
-        if file.name.endswith(".json")
-    ]
+    ids = set()
+    if CONVERSATIONS_DIR.exists():
+        ids.update(
+            file.name.replace("conv_", "").replace(".json", "")
+            for file in CONVERSATIONS_DIR.iterdir()
+            if file.name.endswith(".json")
+        )
+
+    if tm.META_DIR.exists():
+        ids.update(
+            file.name.replace("meta_", "").replace(".json", "")
+            for file in tm.META_DIR.iterdir()
+            if file.name.endswith(".json")
+        )
+
+    return sorted(ids)
 
 
 @app.get("/")

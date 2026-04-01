@@ -154,6 +154,41 @@ def detect_intent(text: str) -> str:
     return "query"
 
 
+def is_acknowledgement(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    acknowledgements = {
+        "ok",
+        "okay",
+        "okay sir",
+        "ok sir",
+        "nice",
+        "cool",
+        "great",
+        "thanks",
+        "thank you",
+        "it seems good",
+        "seems good",
+        "looks good",
+        "alright",
+    }
+    return lowered in acknowledgements
+
+
+def mentions_existing_proof(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(
+        phrase in lowered
+        for phrase in [
+            "already attached",
+            "i attached",
+            "sent screenshot",
+            "i sent proof",
+            "already sent",
+            "uploaded already",
+        ]
+    )
+
+
 def extract_username_from_text(text: str) -> Optional[str]:
     if not text:
         return None
@@ -226,6 +261,9 @@ async def human_reply(
     append_closing: bool = False,
 ):
     reply = content.strip()
+    state = get_ticket_state(channel.id)
+    if state.get("last_assistant", "").strip().lower() == reply.lower():
+        return
     if append_closing and reply and len(reply) < 260:
         reply = f"{reply}\n\nLet me know if you want me to keep helping here."
 
@@ -242,7 +280,6 @@ async def human_reply(
         confidence=confidence,
         metadata=metadata,
     )
-    state = get_ticket_state(channel.id)
     state["last_assistant"] = reply
 
 
@@ -313,6 +350,15 @@ async def handle_known_flow(
 ) -> bool:
     flow = state.get("flow")
 
+    if is_acknowledgement(raw):
+        await human_reply(
+            channel,
+            "Understood. I’m here when you’re ready to continue.",
+            intent=state.get("intent"),
+            append_closing=False,
+        )
+        return True
+
     if flow == "50bonus":
         if not state.get("asked_first_ever"):
             state["asked_first_ever"] = True
@@ -367,6 +413,16 @@ async def handle_known_flow(
             return True
 
     if flow == "gw":
+        if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
+            await escalate_ticket(
+                channel,
+                message.author,
+                reason="giveaway payout review",
+                username_text=state.get("username") or "",
+                proof=True,
+            )
+            return True
+
         if proof_ready_for_escalation(state, raw):
             await escalate_ticket(
                 channel,
@@ -386,6 +442,16 @@ async def handle_known_flow(
             return True
 
     if flow == "deposit":
+        if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
+            await escalate_ticket(
+                channel,
+                message.author,
+                reason="deposit bonus verification",
+                username_text=state.get("username") or "",
+                proof=True,
+            )
+            return True
+
         if proof_ready_for_escalation(state, raw):
             await escalate_ticket(
                 channel,
@@ -528,6 +594,10 @@ async def on_message(message: discord.Message):
         category = detect_category(raw)
         if category:
             state["flow"] = category
+        elif any(key in lowered for key in ["payout", "winner", "won", "giveaway", "gw"]):
+            state["flow"] = "gw"
+        elif "deposit" in lowered:
+            state["flow"] = "deposit"
         state["intent"] = intent
 
         username = extract_username_from_text(raw)
@@ -562,7 +632,7 @@ async def on_message(message: discord.Message):
         if intent == "casual" and len(raw.split()) <= 4 and not attachments and not state.get("flow"):
             await human_reply(
                 channel,
-                "Hey. I can help with payouts, deposits, raffles, bonus claims, or general support questions. Tell me what you need and I’ll guide you from there.",
+                "Hey. Tell me what you need help with and I’ll guide you.",
                 intent=intent,
             )
             return
