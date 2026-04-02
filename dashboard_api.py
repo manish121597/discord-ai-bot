@@ -7,7 +7,7 @@ import jwt
 import requests
 import ticket_manager as tm
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "replace-me-in-production")
 JWT_ALGO = "HS256"
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "12345")
+SYNC_SECRET = os.getenv("SYNC_SECRET", "")
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("DASHBOARD_ALLOWED_ORIGINS", "*").split(",")
@@ -58,6 +59,13 @@ class CloseTicket(BaseModel):
     ticket_id: str
 
 
+class SyncTicketPayload(BaseModel):
+    ticket_id: str
+    status: str
+    messages: List[dict]
+    meta: Dict
+
+
 def write_admin_log(action: str, ticket_id: str, message: str = "", admin: str = "admin"):
     logs = []
     if ADMIN_LOG_FILE.exists():
@@ -81,6 +89,11 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
     except Exception as exc:
         raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+
+
+def verify_sync_secret(secret: str | None):
+    if SYNC_SECRET and secret != SYNC_SECRET:
+        raise HTTPException(status_code=401, detail="Invalid sync secret")
 
 
 def summarize_ticket(ticket_id: str) -> Dict:
@@ -283,3 +296,12 @@ def close_ticket(data: CloseTicket, user=Depends(verify_token)):
 @app.get("/api/admin_logs")
 def get_admin_logs(user=Depends(verify_token)):
     return {"logs": tm._load_json(ADMIN_LOG_FILE, [])}
+
+
+@app.post("/api/internal/sync_ticket")
+def sync_ticket(payload: SyncTicketPayload, x_sync_secret: str | None = Header(default=None)):
+    verify_sync_secret(x_sync_secret)
+    tm.save_conversation(payload.ticket_id, payload.messages)
+    tm.save_ticket_meta(payload.ticket_id, payload.meta)
+    tm.set_ticket_status(payload.ticket_id, payload.status)
+    return {"success": True, "ticket_id": payload.ticket_id}

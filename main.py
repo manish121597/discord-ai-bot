@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, Optional
 
 import discord
+import requests
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -39,6 +40,8 @@ logger = logging.getLogger("discord_bot")
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ADMIN_ROLE_NAME = os.getenv("ADMIN_ROLE_NAME", "Admin - Ticket Support")
+DASHBOARD_SYNC_URL = os.getenv("DASHBOARD_SYNC_URL", "").rstrip("/")
+SYNC_SECRET = os.getenv("SYNC_SECRET", "")
 
 if not DISCORD_TOKEN:
     raise SystemExit("DISCORD_BOT_TOKEN missing from environment variables")
@@ -74,16 +77,6 @@ CATEGORY_MAP = {
     "lb": ["leaderboard", "lb", "top wager", "leader board"],
     "raffle": ["raffle", "raffles"],
 }
-
-PROOF_KEYWORDS = [
-    "proof",
-    "screenshot",
-    "txid",
-    "transaction id",
-    "txn",
-    "evidence",
-    "attachment",
-]
 
 USERNAME_PATTERNS = [
     r"username[:\s]*([A-Za-z0-9_\-\.]+)",
@@ -130,11 +123,6 @@ def admin_mention(guild: Optional[discord.Guild]) -> str:
     return role.mention if role else "@Admin"
 
 
-def contains_any(text: str, words) -> bool:
-    lowered = (text or "").lower()
-    return any(word.lower() in lowered for word in words)
-
-
 def detect_category(text: str) -> Optional[str]:
     lowered = (text or "").lower()
     for category, keys in CATEGORY_MAP.items():
@@ -156,7 +144,7 @@ def detect_intent(text: str) -> str:
 
 def is_acknowledgement(text: str) -> bool:
     lowered = (text or "").strip().lower()
-    acknowledgements = {
+    return lowered in {
         "ok",
         "okay",
         "okay sir",
@@ -171,7 +159,6 @@ def is_acknowledgement(text: str) -> bool:
         "looks good",
         "alright",
     }
-    return lowered in acknowledgements
 
 
 def mentions_existing_proof(text: str) -> bool:
@@ -219,7 +206,7 @@ def already_tagged(name: str) -> bool:
 
 
 def get_ticket_state(channel_id: int) -> Dict[str, Any]:
-    state = ticket_state.setdefault(
+    return ticket_state.setdefault(
         channel_id,
         {
             "flow": None,
@@ -233,7 +220,6 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
             "summary": "",
         },
     )
-    return state
 
 
 def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
@@ -302,6 +288,47 @@ def build_admin_summary(user: discord.User, reason: str, username_text: str, pro
     )
 
 
+def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], message: discord.Message):
+    tm.save_ticket_meta(
+        channel.id,
+        {
+            "channel_name": channel.name,
+            "user_id": getattr(message.author, "id", None),
+            "user_name": str(message.author),
+            "display_name": getattr(message.author, "display_name", str(message.author)),
+            "category": state.get("flow"),
+            "intent": state.get("intent"),
+            "username": state.get("username"),
+            "attachments_total": state.get("attachments_total", 0),
+            "status": "PAUSED" if channel.id in paused_channels else "OPEN",
+        },
+    )
+
+
+def sync_ticket_to_dashboard(ticket_id: int):
+    if not DASHBOARD_SYNC_URL:
+        return
+
+    try:
+        payload = {
+            "ticket_id": str(ticket_id),
+            "status": tm.load_status_map().get(str(ticket_id), "OPEN"),
+            "messages": tm.load_conversation(ticket_id),
+            "meta": tm.load_ticket_meta(ticket_id),
+        }
+        headers = {"Content-Type": "application/json"}
+        if SYNC_SECRET:
+            headers["X-Sync-Secret"] = SYNC_SECRET
+        requests.post(
+            f"{DASHBOARD_SYNC_URL}/api/internal/sync_ticket",
+            headers=headers,
+            json=payload,
+            timeout=8,
+        )
+    except Exception as exc:
+        logger.exception("Ticket sync failed: %s", exc)
+
+
 async def escalate_ticket(
     channel: discord.TextChannel,
     user: discord.User,
@@ -341,6 +368,7 @@ async def escalate_ticket(
         intent="support",
         metadata={"status": "ESCALATED"},
     )
+    sync_ticket_to_dashboard(channel_id)
 
 
 def proof_ready_for_escalation(state: Dict[str, Any], raw: str) -> bool:
@@ -516,23 +544,6 @@ async def answer_knowledge(channel: discord.TextChannel, lowered: str) -> bool:
     return False
 
 
-def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], message: discord.Message):
-    tm.save_ticket_meta(
-        channel.id,
-        {
-            "channel_name": channel.name,
-            "user_id": getattr(message.author, "id", None),
-            "user_name": str(message.author),
-            "display_name": getattr(message.author, "display_name", str(message.author)),
-            "category": state.get("flow"),
-            "intent": state.get("intent"),
-            "username": state.get("username"),
-            "attachments_total": state.get("attachments_total", 0),
-            "status": "PAUSED" if channel.id in paused_channels else "OPEN",
-        },
-    )
-
-
 @tree.command(name="pause", description="Pause AI replies in this ticket (admin only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def slash_pause(interaction: discord.Interaction):
@@ -540,6 +551,7 @@ async def slash_pause(interaction: discord.Interaction):
     paused_channels.add(channel_id)
     tm.save_paused_channels(paused_channels)
     tm.set_ticket_status(channel_id, "PAUSED")
+    sync_ticket_to_dashboard(channel_id)
     await interaction.response.send_message("AI paused for this ticket.", ephemeral=True)
 
 
@@ -550,6 +562,7 @@ async def slash_resume(interaction: discord.Interaction):
     paused_channels.discard(channel_id)
     tm.save_paused_channels(paused_channels)
     tm.set_ticket_status(channel_id, "OPEN")
+    sync_ticket_to_dashboard(channel_id)
     await interaction.response.send_message("AI resumed for this ticket.", ephemeral=True)
 
 
@@ -598,57 +611,59 @@ async def on_message(message: discord.Message):
             raw = strip_bot_mentions(message, (message.content or "").strip())
             if not raw and not message.attachments:
                 raw = "hello"
-        lowered = raw.lower()
-        attachments = []
 
-        for attachment in message.attachments:
-            destination = tm.attachment_dir(channel_id) / attachment.filename
-            await attachment.save(destination)
-            attachments.append(
-                {
-                    "filename": attachment.filename,
-                    "url": f"/attachments/{channel_id}/{attachment.filename}",
-                }
+            lowered = raw.lower()
+            attachments = []
+
+            for attachment in message.attachments:
+                destination = tm.attachment_dir(channel_id) / attachment.filename
+                await attachment.save(destination)
+                attachments.append(
+                    {
+                        "filename": attachment.filename,
+                        "url": f"/attachments/{channel_id}/{attachment.filename}",
+                    }
+                )
+
+            intent = detect_intent(raw)
+            category = detect_category(raw)
+            if category:
+                state["flow"] = category
+            elif any(key in lowered for key in ["payout", "winner", "won", "giveaway", "gw"]):
+                state["flow"] = "gw"
+            elif "deposit" in lowered:
+                state["flow"] = "deposit"
+            state["intent"] = intent
+
+            username = extract_username_from_text(raw)
+            if username:
+                state["username"] = username
+
+            if "donde" in lowered:
+                state["code"] = "Donde"
+
+            if attachments:
+                state["attachments_total"] = state.get("attachments_total", 0) + len(attachments)
+
+            tm.append_message(
+                channel_id,
+                "user",
+                raw,
+                author=str(message.author),
+                attachments=attachments,
+                intent=intent,
+                metadata={"channel_name": channel.name},
             )
+            tm.set_ticket_status(channel_id, "OPEN")
+            build_ticket_metadata(channel, state, message)
+            sync_ticket_to_dashboard(channel_id)
 
-        intent = detect_intent(raw)
-        category = detect_category(raw)
-        if category:
-            state["flow"] = category
-        elif any(key in lowered for key in ["payout", "winner", "won", "giveaway", "gw"]):
-            state["flow"] = "gw"
-        elif "deposit" in lowered:
-            state["flow"] = "deposit"
-        state["intent"] = intent
-
-        username = extract_username_from_text(raw)
-        if username:
-            state["username"] = username
-
-        if "donde" in lowered:
-            state["code"] = "Donde"
-
-        if attachments:
-            state["attachments_total"] = state.get("attachments_total", 0) + len(attachments)
-
-        tm.append_message(
-            channel_id,
-            "user",
-            raw,
-            author=str(message.author),
-            attachments=attachments,
-            intent=intent,
-            metadata={"channel_name": channel.name},
-        )
-        tm.set_ticket_status(channel_id, "OPEN")
-        build_ticket_metadata(channel, state, message)
-
-        if not already_tagged(channel_name) and state.get("flow"):
-            try:
-                first_name = message.author.display_name.split()[0].lower()
-                await channel.edit(name=f"{state['flow']}-{first_name}"[:90])
-            except Exception:
-                logger.debug("Unable to rename channel %s", channel.id)
+            if not already_tagged(channel_name) and state.get("flow"):
+                try:
+                    first_name = message.author.display_name.split()[0].lower()
+                    await channel.edit(name=f"{state['flow']}-{first_name}"[:90])
+                except Exception:
+                    logger.debug("Unable to rename channel %s", channel.id)
 
             if intent == "casual" and len(raw.split()) <= 4 and not attachments and not state.get("flow"):
                 await human_reply(
@@ -656,12 +671,15 @@ async def on_message(message: discord.Message):
                     "Hey. Tell me what you need help with and I’ll guide you.",
                     intent=intent,
                 )
+                sync_ticket_to_dashboard(channel_id)
                 return
 
             if await answer_knowledge(channel, lowered):
+                sync_ticket_to_dashboard(channel_id)
                 return
 
             if await handle_known_flow(channel, message, state, raw, lowered):
+                sync_ticket_to_dashboard(channel_id)
                 return
 
             if AI_AVAILABLE and ask_ai:
@@ -672,6 +690,7 @@ async def on_message(message: discord.Message):
                     state["flow"] = decision.get("category") or state.get("flow")
                     state["summary"] = decision.get("summary") or state.get("summary")
                     build_ticket_metadata(channel, state, message)
+                    sync_ticket_to_dashboard(channel_id)
 
                     if decision.get("needs_admin"):
                         await escalate_ticket(
@@ -695,6 +714,7 @@ async def on_message(message: discord.Message):
                                 "category": decision.get("category"),
                             },
                         )
+                        sync_ticket_to_dashboard(channel_id)
                         return
                 except Exception as exc:
                     logger.exception("Structured AI failed: %s", exc)
@@ -705,6 +725,7 @@ async def on_message(message: discord.Message):
                 intent="support",
                 append_closing=False,
             )
+            sync_ticket_to_dashboard(channel_id)
     except Exception as exc:
         logger.exception("on_message failed: %s", exc)
 
