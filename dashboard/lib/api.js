@@ -10,6 +10,23 @@ function getToken() {
   return localStorage.getItem("token");
 }
 
+export function getStoredUser() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = localStorage.getItem("dashboard_user");
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 async function apiFetch(endpoint, options = {}) {
   const token = getToken();
   const headers = {
@@ -59,6 +76,33 @@ export function getConversation(ticketId) {
   return apiFetch(`/api/conversation/${ticketId}`);
 }
 
+export function claimTicket(ticketId) {
+  return apiFetch(`/api/tickets/${ticketId}/claim`, {
+    method: "POST",
+  });
+}
+
+export function updateTicketMeta(ticketId, payload) {
+  return apiFetch(`/api/tickets/${ticketId}/meta`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function addInternalNote(ticketId, note) {
+  return apiFetch(`/api/tickets/${ticketId}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function suggestReply(ticketId) {
+  return apiFetch("/api/ai/suggest", {
+    method: "POST",
+    body: JSON.stringify({ ticket_id: ticketId }),
+  });
+}
+
 export function sendReply(ticketId, message) {
   return apiFetch("/api/send_reply", {
     method: "POST",
@@ -78,6 +122,15 @@ export function closeTicket(ticketId) {
   });
 }
 
+export function bulkCloseTickets(ticketIds) {
+  return apiFetch("/api/tickets/bulk_close", {
+    method: "POST",
+    body: JSON.stringify({
+      ticket_ids: ticketIds,
+    }),
+  });
+}
+
 export function getAdminLogs() {
   return apiFetch("/api/admin_logs");
 }
@@ -85,6 +138,7 @@ export function getAdminLogs() {
 export function logout() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("token");
+    localStorage.removeItem("dashboard_user");
     window.location.href = "/login";
   }
 }
@@ -100,6 +154,7 @@ export async function login(username, password) {
 
   if (data.access_token && typeof window !== "undefined") {
     localStorage.setItem("token", data.access_token);
+    localStorage.setItem("dashboard_user", JSON.stringify(data.user || null));
   }
 
   return data;

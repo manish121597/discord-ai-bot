@@ -306,6 +306,13 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
     )
 
 
+def ticket_auto_reply_enabled(channel_id: int) -> bool:
+    metadata = tm.load_ticket_meta(channel_id)
+    if "auto_reply_enabled" in metadata:
+        return bool(metadata.get("auto_reply_enabled"))
+    return True
+
+
 def sync_ticket_to_dashboard(ticket_id: int):
     if not DASHBOARD_SYNC_URL:
         return
@@ -612,6 +619,7 @@ async def on_message(message: discord.Message):
 
         async with get_lock(channel_id):
             state = refresh_state_from_history(channel_id)
+            auto_reply_enabled = ticket_auto_reply_enabled(channel_id)
             raw = strip_bot_mentions(message, (message.content or "").strip())
             if not raw and not message.attachments:
                 raw = "hello"
@@ -683,6 +691,11 @@ async def on_message(message: discord.Message):
                 return
 
             if await handle_known_flow(channel, message, state, raw, lowered):
+                sync_ticket_to_dashboard(channel_id)
+                return
+
+            if not auto_reply_enabled and intent in {"casual", "query"} and not state.get("flow"):
+                logger.info("Auto reply disabled for ticket %s; skipping general AI response", channel_id)
                 sync_ticket_to_dashboard(channel_id)
                 return
 
