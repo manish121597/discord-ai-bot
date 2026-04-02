@@ -256,7 +256,8 @@ async def human_reply(
 ):
     reply = content.strip()
     state = get_ticket_state(channel.id)
-    if state.get("last_assistant", "").strip().lower() == reply.lower():
+    last_assistant = (state.get("last_assistant") or "").strip().lower()
+    if last_assistant == reply.lower():
         return
     if append_closing and reply and len(reply) < 260:
         reply = f"{reply}\n\nLet me know if you want me to keep helping here."
@@ -578,7 +579,10 @@ async def slash_status(interaction: discord.Interaction):
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     logger.exception("Slash command error: %s", error)
-    message = "I hit a small command error. Please try again."
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        message = "You need Manage Server permission to use this command."
+    else:
+        message = "I hit a small command error. Please try again."
     if interaction.response.is_done():
         await interaction.followup.send(message, ephemeral=True)
     else:
