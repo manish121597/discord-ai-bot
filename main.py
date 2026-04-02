@@ -147,7 +147,7 @@ def detect_intent(text: str) -> str:
     lowered = (text or "").lower()
     if any(word in lowered for word in ["issue", "problem", "not working", "angry", "refund", "complaint"]):
         return "complaint"
-    if any(word in lowered for word in ["hi", "hello", "hey", "yo", "bro"]):
+    if any(word in lowered for word in ["hi", "hii", "hiii", "hello", "helloo", "hey", "yo", "bro"]):
         return "casual"
     if any(word in lowered for word in ["help", "claim", "payout", "bonus", "deposit", "won"]):
         return "support"
@@ -187,6 +187,14 @@ def mentions_existing_proof(text: str) -> bool:
             "uploaded already",
         ]
     )
+
+
+def strip_bot_mentions(message: discord.Message, text: str) -> str:
+    cleaned = text or ""
+    if bot.user:
+        cleaned = cleaned.replace(bot.user.mention, "")
+    cleaned = re.sub(r"<@!?(\d+)>", "", cleaned)
+    return cleaned.strip()
 
 
 def extract_username_from_text(text: str) -> Optional[str]:
@@ -554,6 +562,16 @@ async def slash_status(interaction: discord.Interaction):
     await interaction.response.send_message(summary, ephemeral=True)
 
 
+@tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    logger.exception("Slash command error: %s", error)
+    message = "I hit a small command error. Please try again."
+    if interaction.response.is_done():
+        await interaction.followup.send(message, ephemeral=True)
+    else:
+        await interaction.response.send_message(message, ephemeral=True)
+
+
 @bot.event
 async def on_ready():
     await tree.sync()
@@ -562,21 +580,24 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot:
-        return
+    try:
+        if message.author.bot:
+            return
 
-    channel = message.channel
-    channel_name = (channel.name or "").lower()
-    if not channel_name.startswith(VALID_PREFIXES):
-        return
+        channel = message.channel
+        channel_name = (channel.name or "").lower()
+        if not channel_name.startswith(VALID_PREFIXES):
+            return
 
-    channel_id = channel.id
-    if channel_id in paused_channels:
-        return
+        channel_id = channel.id
+        if channel_id in paused_channels:
+            return
 
-    async with get_lock(channel_id):
-        state = refresh_state_from_history(channel_id)
-        raw = (message.content or "").strip()
+        async with get_lock(channel_id):
+            state = refresh_state_from_history(channel_id)
+            raw = strip_bot_mentions(message, (message.content or "").strip())
+            if not raw and not message.attachments:
+                raw = "hello"
         lowered = raw.lower()
         attachments = []
 
@@ -629,61 +650,63 @@ async def on_message(message: discord.Message):
             except Exception:
                 logger.debug("Unable to rename channel %s", channel.id)
 
-        if intent == "casual" and len(raw.split()) <= 4 and not attachments and not state.get("flow"):
+            if intent == "casual" and len(raw.split()) <= 4 and not attachments and not state.get("flow"):
+                await human_reply(
+                    channel,
+                    "Hey. Tell me what you need help with and I’ll guide you.",
+                    intent=intent,
+                )
+                return
+
+            if await answer_knowledge(channel, lowered):
+                return
+
+            if await handle_known_flow(channel, message, state, raw, lowered):
+                return
+
+            if AI_AVAILABLE and ask_ai:
+                try:
+                    conversation = tm.load_conversation(channel_id)
+                    decision = await bot.loop.run_in_executor(None, lambda: ask_ai(SYSTEM_PROMPT, conversation))
+                    state["intent"] = decision.get("intent") or state.get("intent")
+                    state["flow"] = decision.get("category") or state.get("flow")
+                    state["summary"] = decision.get("summary") or state.get("summary")
+                    build_ticket_metadata(channel, state, message)
+
+                    if decision.get("needs_admin"):
+                        await escalate_ticket(
+                            channel,
+                            message.author,
+                            reason=decision.get("summary") or "manual review required",
+                            username_text=state.get("username") or "",
+                            proof=bool(state.get("attachments_total", 0)),
+                        )
+                        return
+
+                    reply = decision.get("reply") or decision.get("clarifying_question")
+                    if reply:
+                        await human_reply(
+                            channel,
+                            reply,
+                            intent=decision.get("intent"),
+                            confidence=decision.get("confidence"),
+                            metadata={
+                                "summary": decision.get("summary"),
+                                "category": decision.get("category"),
+                            },
+                        )
+                        return
+                except Exception as exc:
+                    logger.exception("Structured AI failed: %s", exc)
+
             await human_reply(
                 channel,
-                "Hey. Tell me what you need help with and I’ll guide you.",
-                intent=intent,
+                "I want to make sure I guide you correctly. Is this about a payout, a bonus claim, a deposit issue, or something else?",
+                intent="support",
+                append_closing=False,
             )
-            return
-
-        if await answer_knowledge(channel, lowered):
-            return
-
-        if await handle_known_flow(channel, message, state, raw, lowered):
-            return
-
-        if AI_AVAILABLE and ask_ai:
-            try:
-                conversation = tm.load_conversation(channel_id)
-                decision = await bot.loop.run_in_executor(None, lambda: ask_ai(SYSTEM_PROMPT, conversation))
-                state["intent"] = decision.get("intent") or state.get("intent")
-                state["flow"] = decision.get("category") or state.get("flow")
-                state["summary"] = decision.get("summary") or state.get("summary")
-                build_ticket_metadata(channel, state, message)
-
-                if decision.get("needs_admin"):
-                    await escalate_ticket(
-                        channel,
-                        message.author,
-                        reason=decision.get("summary") or "manual review required",
-                        username_text=state.get("username") or "",
-                        proof=bool(state.get("attachments_total", 0)),
-                    )
-                    return
-
-                reply = decision.get("reply") or decision.get("clarifying_question")
-                if reply:
-                    await human_reply(
-                        channel,
-                        reply,
-                        intent=decision.get("intent"),
-                        confidence=decision.get("confidence"),
-                        metadata={
-                            "summary": decision.get("summary"),
-                            "category": decision.get("category"),
-                        },
-                    )
-                    return
-            except Exception as exc:
-                logger.exception("Structured AI failed: %s", exc)
-
-        await human_reply(
-            channel,
-            "I want to make sure I guide you correctly. Is this about a payout, a bonus claim, a deposit issue, or something else?",
-            intent="support",
-            append_closing=False,
-        )
+    except Exception as exc:
+        logger.exception("on_message failed: %s", exc)
 
 
 if __name__ == "__main__":

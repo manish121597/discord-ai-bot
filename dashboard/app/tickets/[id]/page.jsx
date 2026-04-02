@@ -93,6 +93,12 @@ export default function TicketDetail({ params }) {
           <span className={`status-pill ${ticket?.status}`}>{ticket?.status || "OPEN"}</span>
         </div>
 
+        <div className="detail-summary-strip">
+          <span className="pill compact-pill">{ticket?.meta?.intent || "query"}</span>
+          <span className="pill compact-pill">{ticket?.meta?.category || "general"}</span>
+          <span className="subtle-text">{messages.length} messages</span>
+        </div>
+
         <div ref={chatRef} style={{ flex: 1 }}>
           <ConversationViewer messages={messages} baseUrl={getApiBase()} />
         </div>
@@ -121,32 +127,28 @@ export default function TicketDetail({ params }) {
       <aside className="panel">
         <div className="section-header">
           <div>
-            <p className="eyebrow">Ticket intelligence</p>
+            <p className="eyebrow">Ticket details</p>
             <h3>#{ticket?.ticket_id}</h3>
           </div>
           <ShieldAlert size={18} />
         </div>
 
-        <div className="bar-list">
-          <div>
-            <p className="eyebrow">Detected intent</p>
-            <strong>{ticket?.meta?.intent || "query"}</strong>
-          </div>
-          <div>
-            <p className="eyebrow">Category</p>
-            <strong>{ticket?.meta?.category || "general"}</strong>
-          </div>
-          <div>
-            <p className="eyebrow">Stake username</p>
-            <strong>{ticket?.meta?.username || "Not captured yet"}</strong>
-          </div>
-          <div>
-            <p className="eyebrow">Files attached</p>
-            <strong>{ticket?.meta?.attachments_total || 0}</strong>
-          </div>
-          <div>
+        <div className="detail-stats-grid">
+          <div className="detail-stat-card">
             <p className="eyebrow">Customer</p>
             <strong>{ticket?.meta?.display_name || ticket?.meta?.user_name || "Unknown user"}</strong>
+          </div>
+          <div className="detail-stat-card">
+            <p className="eyebrow">Stake username</p>
+            <strong>{ticket?.meta?.username || "Not captured"}</strong>
+          </div>
+          <div className="detail-stat-card">
+            <p className="eyebrow">Files</p>
+            <strong>{ticket?.meta?.attachments_total || 0}</strong>
+          </div>
+          <div className="detail-stat-card">
+            <p className="eyebrow">Status</p>
+            <strong>{ticket?.status || "OPEN"}</strong>
           </div>
         </div>
       </aside>

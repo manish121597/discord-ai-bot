@@ -264,6 +264,19 @@ select {
   margin-top: 22px;
 }
 
+.hero-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.hero-pill,
+.compact-pill {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
 .primary-button,
 .secondary-button {
   border-radius: 999px;
@@ -363,8 +376,9 @@ select {
 }
 
 .ticket-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   border-color: rgba(104, 180, 255, 0.34);
+  box-shadow: 0 22px 50px rgba(2, 10, 25, 0.24);
 }
 
 .ticket-title-row,
@@ -450,6 +464,14 @@ select {
   padding-right: 8px;
 }
 
+.detail-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
 .message-row {
   display: flex;
   margin-bottom: 18px;
@@ -461,7 +483,7 @@ select {
 
 .message-bubble {
   max-width: min(78%, 760px);
-  border-radius: 24px;
+  border-radius: 22px;
   padding: 16px 18px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.04);
@@ -496,6 +518,20 @@ select {
   width: 100%;
   border-radius: 18px;
   border: 1px solid var(--border);
+}
+
+.detail-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.detail-stat-card {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 14px;
 }
 
 .login-page {
@@ -622,6 +658,7 @@ select {
   }
 
   .hero-actions,
+  .hero-points,
   .inline-controls,
   .filter-row,
   .ticket-toolbar,
@@ -636,5 +673,9 @@ select {
   .theme-toggle,
   .ghost-button {
     justify-content: center;
+  }
+
+  .detail-stats-grid {
+    grid-template-columns: 1fr;
   }
 }

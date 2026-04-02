@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles, Zap, ShieldCheck, TimerReset } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getOverview, getServers, getTickets } from "../lib/api";
 import MetricCard from "../components/MetricCard";
@@ -67,6 +67,20 @@ export default function Dashboard() {
             <Link href="/admin/logs" className="secondary-button">
               Open admin activity
             </Link>
+          </div>
+          <div className="hero-points">
+            <span className="hero-pill">
+              <Zap size={14} />
+              Fast triage
+            </span>
+            <span className="hero-pill">
+              <ShieldCheck size={14} />
+              Human review
+            </span>
+            <span className="hero-pill">
+              <TimerReset size={14} />
+              Live updates
+            </span>
           </div>
         </motion.div>
 
@@ -168,7 +182,7 @@ export default function Dashboard() {
               <Link key={ticket.ticket_id} href={`/tickets/${ticket.ticket_id}`} className="ticket-card">
                 <div className="ticket-title-row">
                   <div>
-                    <p className="eyebrow">{ticket.channel_name}</p>
+                    <p className="eyebrow">{ticket.channel_name?.replace("ticket-", "").replace("-", " / ")}</p>
                     <h3>#{ticket.ticket_id}</h3>
                   </div>
                   <span className={`status-pill ${ticket.status}`}>{ticket.status}</span>
@@ -176,7 +190,7 @@ export default function Dashboard() {
                 <p className="ticket-preview">{ticket.last_message || "No recent message yet."}</p>
                 <div className="meta-row">
                   <span className="subtle-text">{ticket.user_name}</span>
-                  <span className="subtle-text">{ticket.intent || "query"}</span>
+                  <span className="pill compact-pill">{ticket.intent || "query"}</span>
                 </div>
               </Link>
             ))}

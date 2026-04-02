@@ -29,12 +29,18 @@ export default function TicketsPage() {
 
   const filteredTickets = useMemo(() => {
     return tickets.filter((ticket) => {
-      const searchMatch = [ticket.ticket_id, ticket.user_name, ticket.last_message, ticket.intent, ticket.category]
+      const haystack = [
+        ticket.ticket_id,
+        ticket.user_name,
+        ticket.last_message,
+        ticket.intent,
+        ticket.category,
+      ]
         .filter(Boolean)
         .join(" ")
-        .toLowerCase()
-        .includes(search.toLowerCase());
+        .toLowerCase();
 
+      const searchMatch = haystack.includes(search.toLowerCase());
       const statusMatch = statusFilter === "ALL" || ticket.status === statusFilter;
       return searchMatch && statusMatch;
     });
@@ -44,8 +50,8 @@ export default function TicketsPage() {
     <div className="glass-card">
       <div className="section-header">
         <div>
-          <p className="eyebrow">Live support operations</p>
-          <h3>Ticket command center</h3>
+          <p className="eyebrow">Tickets</p>
+          <h3>Live queue</h3>
         </div>
         <span className="pill">Auto-refresh every 5 seconds</span>
       </div>
@@ -53,7 +59,7 @@ export default function TicketsPage() {
       <div className="filter-row" style={{ marginTop: 18, marginBottom: 18 }}>
         <input
           className="search-input"
-          placeholder="Search by ticket, user, intent, category, or recent message"
+          placeholder="Search ticket, user, intent, category, or message"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -70,7 +76,7 @@ export default function TicketsPage() {
         </select>
       </div>
 
-      {loading ? <p className="empty-state">Loading support tickets...</p> : null}
+      {loading ? <p className="empty-state">Loading tickets...</p> : null}
 
       {!loading && !filteredTickets.length ? (
         <p className="empty-state">No tickets matched that filter.</p>
@@ -88,9 +94,9 @@ export default function TicketsPage() {
 
               <p className="ticket-preview">{ticket.last_message || "No conversation preview available."}</p>
 
-              <div className="meta-row">
-                <span className="pill">{ticket.intent || "query"}</span>
-                <span className="pill">{ticket.category || "general"}</span>
+              <div className="inline-controls">
+                <span className="pill compact-pill">{ticket.intent || "query"}</span>
+                <span className="pill compact-pill">{ticket.category || "general"}</span>
               </div>
 
               <div className="meta-row" style={{ marginTop: 14 }}>
