@@ -166,6 +166,12 @@ select {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.theme-fixed {
+  cursor: default;
+  border-color: rgba(104, 180, 255, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .nav-link.active {
   border-color: rgba(104, 180, 255, 0.26);
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(124, 58, 237, 0.12));
@@ -194,6 +200,9 @@ select {
   display: flex;
   min-width: 0;
   flex-direction: column;
+  background:
+    radial-gradient(circle at top left, rgba(104, 180, 255, 0.1), transparent 28%),
+    linear-gradient(180deg, rgba(5, 9, 21, 0.36) 0%, transparent 100%);
 }
 
 .topbar {
@@ -205,12 +214,18 @@ select {
   padding: 28px 34px 18px;
 }
 
+.topbar-copy {
+  min-width: 0;
+}
+
 .topbar h2 {
   max-width: 680px;
   font-size: clamp(1.2rem, 2vw, 2rem);
 }
 
 .page-container {
+  width: min(100%, 1480px);
+  margin: 0 auto;
   padding: 26px 34px 40px;
 }
 
@@ -852,6 +867,10 @@ select {
     padding-right: 18px;
   }
 
+  .page-container {
+    padding-bottom: 28px;
+  }
+
   .hero-card,
   .panel,
   .chat-shell,
@@ -868,6 +887,7 @@ select {
 
   .topbar h2 {
     font-size: 1.1rem;
+    max-width: none;
   }
 
   .hero-card h1 {
@@ -894,5 +914,27 @@ select {
 
   .detail-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .conversation-scroll {
+    max-height: none;
+    min-height: 320px;
+  }
+
+  .chat-shell {
+    min-height: auto;
+  }
+
+  .ticket-card h3,
+  .panel h3 {
+    word-break: break-word;
+  }
+
+  .brand-card {
+    padding: 16px;
+  }
+
+  .brand-card h1 {
+    font-size: 1rem;
   }
 }

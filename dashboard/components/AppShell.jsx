@@ -89,9 +89,9 @@ export default function AppShell({ children }) {
 
       <main className="app-main">
         <header className="topbar">
-          <div>
+          <div className="topbar-copy">
             <p className="eyebrow">Admin Dashboard</p>
-            <h2>Clean control over support and ticket flow</h2>
+            <h2>Same live ops view across desktop and mobile</h2>
           </div>
           <ThemeToggle />
         </header>
