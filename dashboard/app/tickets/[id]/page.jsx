@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bot,
+  ChevronDown,
   ClipboardPen,
   SendHorizontal,
   ShieldAlert,
@@ -54,6 +55,8 @@ export default function TicketDetail({ params }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [liveState, setLiveState] = useState("connecting");
+  const [opsOpen, setOpsOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(false);
   const connectionRef = useRef(null);
 
   async function loadTicket() {
@@ -287,7 +290,7 @@ export default function TicketDetail({ params }) {
           ))}
         </div>
 
-        <div style={{ marginTop: 18 }}>
+        <div className="reply-dock">
           <textarea
             value={reply}
             onChange={(event) => {
@@ -347,45 +350,57 @@ export default function TicketDetail({ params }) {
         <div className="ops-side-block">
           <div className="section-header slim-header">
             <strong>Ops controls</strong>
-          </div>
-          <div className="inline-controls">
-            <button type="button" className="secondary-button" onClick={handleClaim}>
-              <UserCheck size={16} />
-              <span>Claim ticket</span>
-            </button>
-            <button type="button" className="secondary-button" onClick={handleAutoReplyToggle}>
-              <Bot size={16} />
-              <span>{ticket?.meta?.auto_reply_enabled !== false ? "Auto reply on" : "Auto reply off"}</span>
+            <button type="button" className="toggle-section-button" onClick={() => setOpsOpen((value) => !value)}>
+              <ChevronDown size={16} className={opsOpen ? "rotate-180" : ""} />
             </button>
           </div>
+          {opsOpen ? (
+            <div className="inline-controls">
+              <button type="button" className="secondary-button" onClick={handleClaim}>
+                <UserCheck size={16} />
+                <span>Claim ticket</span>
+              </button>
+              <button type="button" className="secondary-button" onClick={handleAutoReplyToggle}>
+                <Bot size={16} />
+                <span>{ticket?.meta?.auto_reply_enabled !== false ? "Auto reply on" : "Auto reply off"}</span>
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <div className="ops-side-block">
           <div className="section-header slim-header">
             <strong>Internal notes</strong>
-            <ClipboardPen size={16} />
+            <button type="button" className="toggle-section-button" onClick={() => setNotesOpen((value) => !value)}>
+              <ClipboardPen size={16} />
+              <ChevronDown size={16} className={notesOpen ? "rotate-180" : ""} />
+            </button>
           </div>
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            className="composer compact-composer"
-            rows={3}
-            placeholder="Leave a private note for staff..."
-          />
-          <button type="button" className="secondary-button" style={{ marginTop: 10 }} onClick={handleNoteSave}>
-            Save note
-          </button>
-          <div className="notes-list">
-            {(ticket?.meta?.internal_notes || []).map((item, index) => (
-              <div key={`${item.time}-${index}`} className="note-card">
-                <div className="note-meta">
-                  <strong>{item.author}</strong>
-                  <span>{new Date(item.time).toLocaleString()}</span>
-                </div>
-                <p>{item.text}</p>
+          {notesOpen ? (
+            <>
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                className="composer compact-composer"
+                rows={3}
+                placeholder="Leave a private note for staff..."
+              />
+              <button type="button" className="secondary-button" style={{ marginTop: 10 }} onClick={handleNoteSave}>
+                Save note
+              </button>
+              <div className="notes-list">
+                {(ticket?.meta?.internal_notes || []).map((item, index) => (
+                  <div key={`${item.time}-${index}`} className="note-card">
+                    <div className="note-meta">
+                      <strong>{item.author}</strong>
+                      <span>{new Date(item.time).toLocaleString()}</span>
+                    </div>
+                    <p>{item.text}</p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          ) : null}
         </div>
       </aside>
     </div>
