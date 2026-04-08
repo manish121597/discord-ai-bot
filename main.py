@@ -313,6 +313,12 @@ def ticket_auto_reply_enabled(channel_id: int) -> bool:
     return True
 
 
+def assigned_staff_name(channel_id: int) -> Optional[str]:
+    metadata = tm.load_ticket_meta(channel_id)
+    assigned_to = str(metadata.get("assigned_to") or "").strip()
+    return assigned_to or None
+
+
 def sync_ticket_to_dashboard(ticket_id: int):
     if not DASHBOARD_SYNC_URL:
         return
@@ -574,12 +580,36 @@ async def slash_resume(interaction: discord.Interaction):
     await interaction.response.send_message("AI resumed for this ticket.", ephemeral=True)
 
 
+@tree.command(name="claim", description="Claim this ticket for yourself (admin only)")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def slash_claim(interaction: discord.Interaction):
+    channel_id = interaction.channel.id
+    assignee = interaction.user.display_name or interaction.user.name
+    current_meta = tm.load_ticket_meta(channel_id)
+    notes = list(current_meta.get("internal_notes") or [])
+    notes.insert(
+        0,
+        {
+            "author": "system",
+            "text": f"Ticket claimed in Discord by {assignee}",
+            "time": tm.utc_timestamp(),
+        },
+    )
+    tm.save_ticket_meta(channel_id, {"assigned_to": assignee, "internal_notes": notes})
+    sync_ticket_to_dashboard(channel_id)
+    await interaction.response.send_message(f"Ticket claimed by {assignee}.", ephemeral=True)
+
+
 @tree.command(name="status", description="Show ticket and AI status")
 async def slash_status(interaction: discord.Interaction):
     channel_id = interaction.channel.id
     state = refresh_state_from_history(channel_id)
     status = "PAUSED" if channel_id in paused_channels else "RUNNING"
-    summary = f"AI: {status} | intent: {state.get('intent')} | category: {state.get('flow') or 'general'}"
+    assigned_to = assigned_staff_name(channel_id) or "unclaimed"
+    summary = (
+        f"AI: {status} | intent: {state.get('intent')} | category: {state.get('flow') or 'general'} "
+        f"| assigned: {assigned_to}"
+    )
     await interaction.response.send_message(summary, ephemeral=True)
 
 
@@ -708,6 +738,19 @@ async def on_message(message: discord.Message):
                     state["summary"] = decision.get("summary") or state.get("summary")
                     build_ticket_metadata(channel, state, message)
                     sync_ticket_to_dashboard(channel_id)
+
+                    confidence = float(decision.get("confidence") or 0.0)
+
+                    if confidence < 0.58 and not decision.get("needs_admin"):
+                        await human_reply(
+                            channel,
+                            decision.get("clarifying_question")
+                            or "I want to make sure I route this correctly. Is this about a payout, a deposit issue, a giveaway win, or something else?",
+                            intent="support",
+                            append_closing=False,
+                        )
+                        sync_ticket_to_dashboard(channel_id)
+                        return
 
                     if decision.get("needs_admin"):
                         await escalate_ticket(

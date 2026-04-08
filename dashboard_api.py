@@ -38,6 +38,7 @@ ALLOWED_ORIGINS = [
 ]
 
 ADMIN_LOG_FILE = Path("admin_logs.json")
+ALERTS_FILE = Path("alerts.json")
 CONVERSATIONS_DIR = Path("ticket_data/conversations")
 SERVER_MAP_PATH = Path("server_map.json")
 UTC = timezone.utc
@@ -94,6 +95,11 @@ class BulkClosePayload(BaseModel):
 
 class AISuggestPayload(BaseModel):
     ticket_id: str
+
+
+class HandoffPayload(BaseModel):
+    assigned_to: str
+    note: str = ""
 
 
 class RealtimeHub:
@@ -162,6 +168,27 @@ def verify_sync_secret(secret: str | None):
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
+
+
+def load_alerts() -> List[Dict[str, Any]]:
+    return tm._load_json(ALERTS_FILE, [])
+
+
+def write_alert(kind: str, ticket_id: str, title: str, body: str, priority: str = "LOW"):
+    alerts = load_alerts()
+    alerts.insert(
+        0,
+        {
+            "id": f"{kind}-{ticket_id}-{int(datetime.now(UTC).timestamp())}",
+            "kind": kind,
+            "ticket_id": str(ticket_id),
+            "title": title,
+            "body": body,
+            "priority": priority,
+            "time": datetime.now(UTC).isoformat(),
+        },
+    )
+    tm._save_json(ALERTS_FILE, alerts[:100])
 
 
 def parse_timestamp(value: Optional[str]) -> Optional[datetime]:
@@ -270,6 +297,7 @@ def summarize_ticket(ticket_id: str) -> Dict[str, Any]:
         and last_seen
         and now_utc() - last_seen > timedelta(minutes=8)
     )
+    waiting_minutes = round(max((now_utc() - last_seen).total_seconds(), 0) / 60, 1) if last_seen else 0
 
     return {
         "ticket_id": str(ticket_id),
@@ -291,6 +319,7 @@ def summarize_ticket(ticket_id: str) -> Dict[str, Any]:
         "note_count": len(metadata.get("internal_notes") or []),
         "auto_reply_enabled": bool(metadata["auto_reply_enabled"]) if "auto_reply_enabled" in metadata else True,
         "overdue": overdue,
+        "waiting_minutes": waiting_minutes,
         "avg_response_minutes": response_minutes(conversation),
     }
 
@@ -316,6 +345,7 @@ def build_overview(tickets: List[Dict[str, Any]]) -> Dict[str, Any]:
     status_counts: Dict[str, int] = {}
     intent_counts: Dict[str, int] = {}
     priority_counts: Dict[str, int] = {}
+    category_counts: Dict[str, int] = {}
     users = Counter()
     response_times: List[float] = []
 
@@ -324,6 +354,7 @@ def build_overview(tickets: List[Dict[str, Any]]) -> Dict[str, Any]:
         intent = ticket["intent"] or "query"
         intent_counts[intent] = intent_counts.get(intent, 0) + 1
         priority_counts[ticket["priority"]] = priority_counts.get(ticket["priority"], 0) + 1
+        category_counts[ticket["category"]] = category_counts.get(ticket["category"], 0) + 1
         users[ticket["user_name"]] += ticket["count"]
         if ticket.get("avg_response_minutes") is not None:
             response_times.append(float(ticket["avg_response_minutes"]))
@@ -365,6 +396,7 @@ def build_overview(tickets: List[Dict[str, Any]]) -> Dict[str, Any]:
         "status_breakdown": status_counts,
         "intent_breakdown": intent_counts,
         "priority_breakdown": priority_counts,
+        "category_breakdown": category_counts,
         "activity": activity,
         "top_users": [{"label": label, "value": value} for label, value in users.most_common(5)],
         "staff_metrics": [
@@ -395,6 +427,7 @@ async def emit_ticket_snapshot(ticket_id: str, event: str = "ticket_updated", in
                 },
             )
     await hub.broadcast("stats_updated", build_overview([summarize_ticket(item) for item in all_ticket_ids()]))
+    await hub.broadcast("alerts_updated", {"alerts": load_alerts()[:20]})
 
 
 def ai_support_prompt() -> str:
@@ -501,6 +534,11 @@ def get_overview(user=Depends(verify_token)):
     return build_overview(tickets)
 
 
+@app.get("/api/alerts")
+def get_alerts(user=Depends(verify_token)):
+    return {"alerts": load_alerts()[:20]}
+
+
 @app.get("/api/tickets")
 def get_tickets(user=Depends(verify_token)):
     tickets = [summarize_ticket(ticket_id) for ticket_id in all_ticket_ids()]
@@ -529,6 +567,7 @@ def get_conversation(ticket_id: str, user=Depends(verify_token)):
         "status": status,
         "messages": conversation,
         "meta": metadata,
+        "waiting_minutes": summarize_ticket(ticket_id).get("waiting_minutes", 0),
     }
 
 
@@ -626,10 +665,47 @@ async def bulk_close(payload: BulkClosePayload, user=Depends(verify_token)):
 @app.post("/api/tickets/{ticket_id}/claim")
 async def claim_ticket(ticket_id: str, user=Depends(verify_token)):
     admin = user.get("user", "admin")
-    tm.save_ticket_meta(ticket_id, {"assigned_to": admin})
+    current = tm.load_ticket_meta(ticket_id)
+    notes = list(current.get("internal_notes") or [])
+    notes.insert(
+        0,
+        {
+            "author": "system",
+            "text": f"Ticket claimed by {admin}",
+            "time": datetime.now(UTC).isoformat(),
+        },
+    )
+    tm.save_ticket_meta(ticket_id, {"assigned_to": admin, "internal_notes": notes})
     write_admin_log("CLAIM", ticket_id, admin=admin)
+    write_alert("claim", ticket_id, "Ticket claimed", f"{admin} claimed ticket #{ticket_id}", priority="LOW")
     await emit_ticket_snapshot(ticket_id, include_message=False)
     return {"ticket_id": ticket_id, "assigned_to": admin}
+
+
+@app.post("/api/tickets/{ticket_id}/handoff")
+async def handoff_ticket(ticket_id: str, payload: HandoffPayload, user=Depends(verify_token)):
+    current = tm.load_ticket_meta(ticket_id)
+    notes = list(current.get("internal_notes") or [])
+    handoff_note = payload.note.strip() or f"Handoff requested by {user.get('user', 'admin')}"
+    notes.insert(
+        0,
+        {
+            "author": user.get("user", "admin"),
+            "text": f"Handed off to {payload.assigned_to}: {handoff_note}",
+            "time": datetime.now(UTC).isoformat(),
+        },
+    )
+    tm.save_ticket_meta(ticket_id, {"assigned_to": payload.assigned_to.strip(), "internal_notes": notes})
+    write_admin_log("HANDOFF", ticket_id, f"{user.get('user', 'admin')} -> {payload.assigned_to}", admin=user.get("user", "admin"))
+    write_alert(
+        "handoff",
+        ticket_id,
+        "Ticket handoff",
+        f"{user.get('user', 'admin')} handed ticket #{ticket_id} to {payload.assigned_to}",
+        priority="MEDIUM",
+    )
+    await emit_ticket_snapshot(ticket_id, include_message=False)
+    return {"ticket_id": ticket_id, "assigned_to": payload.assigned_to.strip(), "notes": notes}
 
 
 @app.post("/api/tickets/{ticket_id}/meta")
@@ -752,6 +828,11 @@ async def sync_ticket(payload: SyncTicketPayload, x_sync_secret: str | None = He
 
     tm.save_ticket_meta(payload.ticket_id, enriched_meta)
     tm.set_ticket_status(payload.ticket_id, payload.status)
+    ticket = summarize_ticket(payload.ticket_id)
+    if is_new_ticket:
+        write_alert("new_ticket", payload.ticket_id, "New ticket created", ticket.get("last_message") or f"#{payload.ticket_id}", priority=ticket["priority"])
+    elif ticket["priority"] == "HIGH" or ticket["overdue"]:
+        write_alert("attention", payload.ticket_id, "Ticket needs attention", ticket.get("last_message") or f"#{payload.ticket_id}", priority=ticket["priority"])
 
     await emit_ticket_snapshot(payload.ticket_id, event="new_ticket" if is_new_ticket else "ticket_updated")
     return {"success": True, "ticket_id": payload.ticket_id}

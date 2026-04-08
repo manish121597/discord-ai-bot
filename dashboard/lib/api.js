@@ -96,6 +96,16 @@ export function addInternalNote(ticketId, note) {
   });
 }
 
+export function handoffTicket(ticketId, assignedTo, note) {
+  return apiFetch(`/api/tickets/${ticketId}/handoff`, {
+    method: "POST",
+    body: JSON.stringify({
+      assigned_to: assignedTo,
+      note,
+    }),
+  });
+}
+
 export function suggestReply(ticketId) {
   return apiFetch("/api/ai/suggest", {
     method: "POST",
@@ -133,6 +143,10 @@ export function bulkCloseTickets(ticketIds) {
 
 export function getAdminLogs() {
   return apiFetch("/api/admin_logs");
+}
+
+export function getAlerts() {
+  return apiFetch("/api/alerts");
 }
 
 export function logout() {

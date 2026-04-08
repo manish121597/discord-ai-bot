@@ -218,6 +218,12 @@ select {
   min-width: 0;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .topbar h2 {
   max-width: 680px;
   font-size: clamp(1.2rem, 2vw, 2rem);
@@ -731,6 +737,67 @@ select {
   margin-top: 14px;
 }
 
+.notification-center {
+  position: relative;
+}
+
+.notification-trigger {
+  position: relative;
+}
+
+.notification-badge {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.notification-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  width: min(420px, 92vw);
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: rgba(10, 16, 32, 0.96);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(24px);
+  padding: 16px;
+  z-index: 80;
+}
+
+.alert-card.HIGH {
+  border-color: rgba(251, 113, 133, 0.28);
+}
+
+.alert-card.MEDIUM {
+  border-color: rgba(250, 204, 21, 0.24);
+}
+
+.handoff-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.sla-pill {
+  background: rgba(104, 180, 255, 0.1);
+  color: var(--primary);
+}
+
+.sla-pill.breach {
+  background: rgba(251, 113, 133, 0.12);
+  color: var(--danger);
+}
+
 .note-card,
 .watchlist-item {
   border: 1px solid var(--border);
@@ -865,6 +932,11 @@ select {
     padding-top: 72px;
   }
 
+  .topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
   .filter-grid {
     grid-template-columns: 1fr;
   }
@@ -916,6 +988,7 @@ select {
   .hero-actions,
   .hero-points,
   .inline-controls,
+  .topbar-actions,
   .filter-row,
   .ticket-toolbar,
   .section-header,
@@ -933,6 +1006,14 @@ select {
 
   .detail-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .notification-panel {
+    position: fixed;
+    left: 18px;
+    right: 18px;
+    top: 88px;
+    width: auto;
   }
 
   .conversation-scroll {

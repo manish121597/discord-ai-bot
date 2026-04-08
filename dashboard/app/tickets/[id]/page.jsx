@@ -17,6 +17,7 @@ import {
   addInternalNote,
   claimTicket,
   closeTicket,
+  handoffTicket,
   getApiBase,
   getConversation,
   getStoredUser,
@@ -50,6 +51,8 @@ export default function TicketDetail({ params }) {
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState("");
   const [note, setNote] = useState("");
+  const [handoffTarget, setHandoffTarget] = useState("");
+  const [handoffNote, setHandoffNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -189,6 +192,27 @@ export default function TicketDetail({ params }) {
     }
   }
 
+  async function handleHandoff() {
+    if (!handoffTarget.trim()) {
+      return;
+    }
+    try {
+      const data = await handoffTicket(id, handoffTarget.trim(), handoffNote.trim());
+      setTicket((current) => ({
+        ...(current || {}),
+        meta: {
+          ...(current?.meta || {}),
+          assigned_to: data.assigned_to,
+          internal_notes: data.notes,
+        },
+      }));
+      setHandoffTarget("");
+      setHandoffNote("");
+    } catch (error) {
+      console.error("Handoff failed:", error);
+    }
+  }
+
   function handleKeyDown(event) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -206,6 +230,7 @@ export default function TicketDetail({ params }) {
             ...(current || {}),
             ticket_id: id,
             status: event.payload.status,
+            waiting_minutes: event.payload.waiting_minutes,
             meta: {
               ...(current?.meta || {}),
               ...event.payload,
@@ -219,6 +244,7 @@ export default function TicketDetail({ params }) {
               ...(current || {}),
               ticket_id: id,
               status: event.payload.ticket.status,
+              waiting_minutes: event.payload.ticket.waiting_minutes,
               meta: {
                 ...(current?.meta || {}),
                 ...event.payload.ticket,
@@ -269,6 +295,9 @@ export default function TicketDetail({ params }) {
           <span className="pill compact-pill">{ticket?.meta?.category || "general"}</span>
           <span className={`status-pill ${ticket?.meta?.priority || "LOW"}`}>{ticket?.meta?.priority || "LOW"}</span>
           <span className="subtle-text">{messages.length} messages</span>
+          <span className={`pill compact-pill ${ticket?.waiting_minutes > 8 ? "sla-pill breach" : "sla-pill"}`}>
+            Waiting {ticket?.waiting_minutes || 0} min
+          </span>
         </div>
 
         <div ref={chatRef} style={{ flex: 1 }}>
@@ -355,16 +384,35 @@ export default function TicketDetail({ params }) {
             </button>
           </div>
           {opsOpen ? (
-            <div className="inline-controls">
-              <button type="button" className="secondary-button" onClick={handleClaim}>
-                <UserCheck size={16} />
-                <span>Claim ticket</span>
-              </button>
-              <button type="button" className="secondary-button" onClick={handleAutoReplyToggle}>
-                <Bot size={16} />
-                <span>{ticket?.meta?.auto_reply_enabled !== false ? "Auto reply on" : "Auto reply off"}</span>
-              </button>
-            </div>
+            <>
+              <div className="inline-controls">
+                <button type="button" className="secondary-button" onClick={handleClaim}>
+                  <UserCheck size={16} />
+                  <span>Claim ticket</span>
+                </button>
+                <button type="button" className="secondary-button" onClick={handleAutoReplyToggle}>
+                  <Bot size={16} />
+                  <span>{ticket?.meta?.auto_reply_enabled !== false ? "Auto reply on" : "Auto reply off"}</span>
+                </button>
+              </div>
+              <div className="handoff-grid">
+                <input
+                  className="login-input"
+                  placeholder="Handoff to staff name"
+                  value={handoffTarget}
+                  onChange={(event) => setHandoffTarget(event.target.value)}
+                />
+                <input
+                  className="login-input"
+                  placeholder="Handoff note"
+                  value={handoffNote}
+                  onChange={(event) => setHandoffNote(event.target.value)}
+                />
+                <button type="button" className="secondary-button" onClick={handleHandoff}>
+                  Send handoff
+                </button>
+              </div>
+            </>
           ) : null}
         </div>
 

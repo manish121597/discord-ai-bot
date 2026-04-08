@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import ThemeToggle from "./ThemeToggle";
+import NotificationCenter from "./NotificationCenter";
 import { logout } from "../lib/api";
 
 const navItems = [
@@ -93,7 +94,10 @@ export default function AppShell({ children }) {
             <p className="eyebrow">Admin Dashboard</p>
             <h2>Same live ops view across desktop and mobile</h2>
           </div>
-          <ThemeToggle />
+          <div className="topbar-actions">
+            <NotificationCenter />
+            <ThemeToggle />
+          </div>
         </header>
         <div className="page-container">{children}</div>
       </main>

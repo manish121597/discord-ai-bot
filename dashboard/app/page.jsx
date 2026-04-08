@@ -117,6 +117,10 @@ export default function Dashboard() {
     label,
     value,
   }));
+  const categoryChart = Object.entries(overviewData?.category_breakdown || {}).map(([label, value]) => ({
+    label,
+    value,
+  }));
   const activeUsers = overviewData?.top_users || overview.top_users || [];
   const staffMetrics = overviewData?.staff_metrics || [];
 
@@ -218,6 +222,38 @@ export default function Dashboard() {
           items={priorityChart}
           emptyLabel="Priority distribution will appear once tickets are classified."
         />
+      </section>
+
+      <section className="content-grid" style={{ marginTop: 18 }}>
+        <MiniBarChart
+          title="Category mix"
+          items={categoryChart}
+          emptyLabel="Category data will appear as soon as tickets are classified."
+        />
+
+        <div className="panel">
+          <div className="panel-header">
+            <h3>SLA watch</h3>
+            <TriangleAlert size={18} />
+          </div>
+          <div className="bar-list">
+            {(tickets || [])
+              .filter((ticket) => ticket.waiting_minutes >= 8 && ticket.status !== "CLOSED")
+              .slice(0, 5)
+              .map((ticket) => (
+                <Link key={ticket.ticket_id} href={`/tickets/${ticket.ticket_id}`} className="watchlist-item">
+                  <div>
+                    <strong>#{ticket.ticket_id}</strong>
+                    <p>{ticket.user_name}</p>
+                  </div>
+                  <span className="pill compact-pill">{ticket.waiting_minutes} min</span>
+                </Link>
+              ))}
+            {!loading && !tickets.some((ticket) => ticket.waiting_minutes >= 8 && ticket.status !== "CLOSED") ? (
+              <p className="empty-state">No SLA breaches right now.</p>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       <section className="content-grid" style={{ marginTop: 18 }}>
