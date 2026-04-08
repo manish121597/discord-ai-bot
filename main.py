@@ -19,11 +19,12 @@ from dotenv import load_dotenv
 import ticket_manager as tm
 
 try:
-    from ai_helper import ask_ai
+    from ai_helper import analyze_attachments, ask_ai
 
     AI_AVAILABLE = True
 except Exception:
     ask_ai = None
+    analyze_attachments = None
     AI_AVAILABLE = False
 
 load_dotenv()
@@ -211,6 +212,7 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
         {
             "flow": None,
             "username": None,
+            "transaction_id": None,
             "code": None,
             "attachments_total": 0,
             "escalated": False,
@@ -218,6 +220,10 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
             "last_assistant": None,
             "intent": "query",
             "summary": "",
+            "proof_ready": False,
+            "proof_notes": "",
+            "proof_type": None,
+            "analysis_confidence": 0.0,
         },
     )
 
@@ -236,6 +242,21 @@ def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
         username = extract_username_from_text(text)
         if username:
             state["username"] = username
+        metadata = entry.get("metadata") or {}
+        extracted_username = metadata.get("extracted_username")
+        if extracted_username:
+            state["username"] = extracted_username
+        transaction_id = metadata.get("transaction_id")
+        if transaction_id:
+            state["transaction_id"] = transaction_id
+        if metadata.get("proof_ready"):
+            state["proof_ready"] = True
+        if metadata.get("proof_type"):
+            state["proof_type"] = metadata.get("proof_type")
+        if metadata.get("proof_notes"):
+            state["proof_notes"] = metadata.get("proof_notes")
+        if metadata.get("analysis_confidence"):
+            state["analysis_confidence"] = metadata.get("analysis_confidence")
         if "donde" in text.lower():
             state["code"] = "Donde"
         if "first-ever" in text.lower():
@@ -300,7 +321,12 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
             "category": state.get("flow"),
             "intent": state.get("intent"),
             "username": state.get("username"),
+            "transaction_id": state.get("transaction_id"),
             "attachments_total": state.get("attachments_total", 0),
+            "proof_ready": state.get("proof_ready", False),
+            "proof_type": state.get("proof_type"),
+            "proof_notes": state.get("proof_notes"),
+            "analysis_confidence": state.get("analysis_confidence", 0.0),
             "status": "PAUSED" if channel.id in paused_channels else "OPEN",
         },
     )
@@ -388,7 +414,43 @@ async def escalate_ticket(
 def proof_ready_for_escalation(state: Dict[str, Any], raw: str) -> bool:
     attachments_total = state.get("attachments_total", 0)
     text_present = bool(state.get("username")) or bool(raw.strip())
+    if state.get("proof_ready") and state.get("analysis_confidence", 0.0) >= 0.62:
+        return True
     return (attachments_total >= 1 and text_present) or (attachments_total >= 2)
+
+
+def proof_status_for_flow(state: Dict[str, Any], flow: Optional[str]) -> Dict[str, Any]:
+    flow = flow or "general"
+    analysis_confidence = float(state.get("analysis_confidence") or 0.0)
+    proof_ready = bool(state.get("proof_ready")) and analysis_confidence >= 0.62
+    username = state.get("username")
+    transaction_id = state.get("transaction_id")
+    proof_type = state.get("proof_type") or "unknown"
+    missing: list[str] = []
+    valid = False
+
+    if flow == "gw":
+        valid = proof_ready and proof_type in {"winner", "generic"} and bool(username or state.get("attachments_total", 0))
+        if not proof_ready:
+            missing.append("winner proof screenshot")
+        if not username:
+            missing.append("Stake username")
+    elif flow == "deposit":
+        valid = proof_ready and proof_type in {"deposit", "transaction", "generic"} and bool(username or transaction_id)
+        if not proof_ready:
+            missing.append("deposit proof screenshot")
+        if not username and not transaction_id:
+            missing.append("Stake username or transaction ID")
+    elif flow == "50bonus":
+        valid = proof_ready and proof_type in {"kyc", "code_proof", "generic"} and bool(username)
+        if not proof_ready:
+            missing.append("KYC / code proof screenshot")
+        if not username:
+            missing.append("Stake username")
+    else:
+        valid = proof_ready
+
+    return {"valid": valid, "missing": missing, "proof_type": proof_type}
 
 
 async def handle_known_flow(
@@ -436,7 +498,8 @@ async def handle_known_flow(
             )
             return True
 
-        if proof_ready_for_escalation(state, raw):
+        proof_state = proof_status_for_flow(state, flow)
+        if proof_state["valid"]:
             await escalate_ticket(
                 channel,
                 message.author,
@@ -454,6 +517,14 @@ async def handle_known_flow(
             )
             return True
 
+        if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
+            await human_reply(
+                channel,
+                "I checked the screenshot, but it does not clearly show the KYC or Donde proof I need yet. Please send a clearer KYC/code-proof screenshot and your Stake username.",
+                intent="support",
+            )
+            return True
+
         if not state.get("username"):
             await human_reply(
                 channel,
@@ -464,16 +535,19 @@ async def handle_known_flow(
 
     if flow == "gw":
         if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
-            await escalate_ticket(
-                channel,
-                message.author,
-                reason="giveaway payout review",
-                username_text=state.get("username") or "",
-                proof=True,
-            )
-            return True
+            proof_state = proof_status_for_flow(state, flow)
+            if proof_state["valid"]:
+                await escalate_ticket(
+                    channel,
+                    message.author,
+                    reason="giveaway payout review",
+                    username_text=state.get("username") or "",
+                    proof=True,
+                )
+                return True
 
-        if proof_ready_for_escalation(state, raw):
+        proof_state = proof_status_for_flow(state, flow)
+        if proof_state["valid"]:
             await escalate_ticket(
                 channel,
                 message.author,
@@ -491,18 +565,37 @@ async def handle_known_flow(
             )
             return True
 
-    if flow == "deposit":
-        if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
-            await escalate_ticket(
+        if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
+            await human_reply(
                 channel,
-                message.author,
-                reason="deposit bonus verification",
-                username_text=state.get("username") or "",
-                proof=True,
+                "I can see an attachment, but it does not clearly look like the giveaway winner proof yet. Please send the winner announcement screenshot from Twitter or Discord, and include your Stake username.",
+                intent="support",
             )
             return True
 
-        if proof_ready_for_escalation(state, raw):
+        if state.get("proof_ready") and not state.get("username"):
+            await human_reply(
+                channel,
+                "I can work with that winner screenshot. Please send your Stake username as well so I can escalate the payout review.",
+                intent="support",
+            )
+            return True
+
+    if flow == "deposit":
+        if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
+            proof_state = proof_status_for_flow(state, flow)
+            if proof_state["valid"]:
+                await escalate_ticket(
+                    channel,
+                    message.author,
+                    reason="deposit bonus verification",
+                    username_text=state.get("username") or "",
+                    proof=True,
+                )
+                return True
+
+        proof_state = proof_status_for_flow(state, flow)
+        if proof_state["valid"]:
             await escalate_ticket(
                 channel,
                 message.author,
@@ -516,6 +609,22 @@ async def handle_known_flow(
             await human_reply(
                 channel,
                 "To verify a deposit claim, please attach the deposit screenshot and mention your Stake username. Once I have both, I can route it correctly.",
+                intent="support",
+            )
+            return True
+
+        if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
+            await human_reply(
+                channel,
+                "I checked the attachment, but it does not clearly show the deposit proof yet. Please send a clearer deposit screenshot or payment confirmation, plus your Stake username or transaction ID.",
+                intent="support",
+            )
+            return True
+
+        if state.get("proof_ready") and not state.get("username") and not state.get("transaction_id"):
+            await human_reply(
+                channel,
+                "I can see the deposit proof. Please send your Stake username or transaction ID so I can route this correctly.",
                 intent="support",
             )
             return True
@@ -656,6 +765,7 @@ async def on_message(message: discord.Message):
 
             lowered = raw.lower()
             attachments = []
+            attachment_inputs = []
 
             for attachment in message.attachments:
                 destination = tm.attachment_dir(channel_id) / attachment.filename
@@ -664,6 +774,12 @@ async def on_message(message: discord.Message):
                     {
                         "filename": attachment.filename,
                         "url": f"/attachments/{channel_id}/{attachment.filename}",
+                    }
+                )
+                attachment_inputs.append(
+                    {
+                        "filename": attachment.filename,
+                        "path": str(destination),
                     }
                 )
 
@@ -687,6 +803,32 @@ async def on_message(message: discord.Message):
             if attachments:
                 state["attachments_total"] = state.get("attachments_total", 0) + len(attachments)
 
+            attachment_metadata = {}
+            if attachment_inputs and AI_AVAILABLE and analyze_attachments:
+                try:
+                    analysis = await bot.loop.run_in_executor(
+                        None,
+                        lambda: analyze_attachments(state.get("flow") or category or "general", raw, attachment_inputs),
+                    )
+                    state["proof_ready"] = bool(analysis.get("has_relevant_proof"))
+                    state["proof_type"] = analysis.get("proof_type")
+                    state["proof_notes"] = analysis.get("notes") or ""
+                    state["analysis_confidence"] = float(analysis.get("confidence") or 0.0)
+                    if analysis.get("username") and not state.get("username"):
+                        state["username"] = analysis.get("username")
+                    if analysis.get("transaction_id"):
+                        state["transaction_id"] = analysis.get("transaction_id")
+                    attachment_metadata = {
+                        "proof_ready": state.get("proof_ready"),
+                        "proof_type": state.get("proof_type"),
+                        "proof_notes": state.get("proof_notes"),
+                        "analysis_confidence": state.get("analysis_confidence"),
+                        "extracted_username": analysis.get("username") or "",
+                        "transaction_id": analysis.get("transaction_id") or "",
+                    }
+                except Exception as exc:
+                    logger.exception("Attachment analysis failed: %s", exc)
+
             tm.append_message(
                 channel_id,
                 "user",
@@ -694,7 +836,7 @@ async def on_message(message: discord.Message):
                 author=str(message.author),
                 attachments=attachments,
                 intent=intent,
-                metadata={"channel_name": channel.name},
+                metadata={"channel_name": channel.name, **attachment_metadata},
             )
             tm.set_ticket_status(channel_id, "OPEN")
             build_ticket_metadata(channel, state, message)
