@@ -198,6 +198,19 @@ def extract_username_from_text(text: str) -> Optional[str]:
     return None
 
 
+def infer_text_proof_signals(text: str, flow: Optional[str]) -> Dict[str, Any]:
+    lowered = (text or "").lower()
+    return {
+        "winner_detected": flow == "gw" and any(word in lowered for word in ["winner", "won", "giveaway", "gw win"]),
+        "deposit_detected": flow == "deposit" and any(word in lowered for word in ["deposit", "payment", "transaction", "txid"]),
+        "kyc_detected": flow == "50bonus" and "kyc" in lowered,
+        "code_proof_detected": any(word in lowered for word in ["donde code", "code proof", "used code donde", "code donde"]),
+        "youtube_proof_detected": any(word in lowered for word in ["youtube", "yt proof", "yt comment", "comment proof"]),
+        "supporting_proof_detected": any(word in lowered for word in ["supporting proof", "extra proof"]),
+        "platform_hint": detect_giveaway_platform(text) or "unknown",
+    }
+
+
 def already_tagged(name: str) -> bool:
     lowered = (name or "").lower()
     return any(
@@ -226,6 +239,8 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
             "proof_type": None,
             "analysis_confidence": 0.0,
             "gw_required_attachments": 0,
+            "proof_signals": {},
+            "checklist": {},
         },
     )
 
@@ -239,6 +254,131 @@ def detect_giveaway_platform(text: str) -> Optional[str]:
     if "kick" in lowered:
         return "kick"
     return None
+
+
+def merge_proof_signals(state: Dict[str, Any], incoming: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    signals = dict(state.get("proof_signals") or {})
+    if not incoming:
+        state["proof_signals"] = signals
+        return signals
+
+    truthy_keys = {
+        "winner_detected",
+        "deposit_detected",
+        "kyc_detected",
+        "code_proof_detected",
+        "youtube_proof_detected",
+        "supporting_proof_detected",
+        "has_relevant_proof",
+    }
+    numeric_keys = {"confidence"}
+
+    for key, value in incoming.items():
+        if key in truthy_keys:
+            signals[key] = bool(signals.get(key)) or bool(value)
+        elif key in numeric_keys:
+            signals[key] = max(float(signals.get(key) or 0.0), float(value or 0.0))
+        elif value and not signals.get(key):
+            signals[key] = value
+
+    state["proof_signals"] = signals
+    return signals
+
+
+def build_flow_checklist(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    flow = state.get("flow")
+    signals = merge_proof_signals(state, state.get("proof_signals") or {})
+    username = bool(state.get("username"))
+    transaction = bool(state.get("transaction_id"))
+    platform = state.get("gw_platform")
+    asked_first_ever = bool(state.get("asked_first_ever"))
+    first_ever_confirmed = str(state.get("first_ever_confirmed") or "").lower() in {"yes", "true", "confirmed"}
+
+    if flow == "gw":
+        items = {
+            "platform_confirmed": {
+                "label": "where you won the giveaway",
+                "complete": bool(platform),
+            },
+            "stake_username": {
+                "label": "Stake username",
+                "complete": username,
+            },
+        }
+        if platform in {"discord", "twitter"}:
+            items.update(
+                {
+                    "winner_proof": {
+                        "label": f"{platform.title()} winner proof screenshot",
+                        "complete": bool(signals.get("winner_detected")),
+                    },
+                    "code_proof": {
+                        "label": "Donde code proof screenshot",
+                        "complete": bool(signals.get("code_proof_detected")),
+                    },
+                    "youtube_proof": {
+                        "label": "YouTube proof screenshot",
+                        "complete": bool(signals.get("youtube_proof_detected")),
+                    },
+                }
+            )
+        elif platform == "kick":
+            items.update(
+                {
+                    "winner_proof": {
+                        "label": "Kick winner proof screenshot",
+                        "complete": bool(signals.get("winner_detected")),
+                    },
+                    "supporting_proof": {
+                        "label": "extra supporting proof screenshot",
+                        "complete": bool(signals.get("supporting_proof_detected") or signals.get("code_proof_detected") or signals.get("youtube_proof_detected")),
+                    },
+                }
+            )
+    elif flow == "deposit":
+        items = {
+            "deposit_proof": {
+                "label": "deposit proof screenshot",
+                "complete": bool(signals.get("deposit_detected") or state.get("proof_ready")),
+            },
+            "stake_or_txid": {
+                "label": "Stake username or transaction ID",
+                "complete": username or transaction,
+            },
+        }
+    elif flow == "50bonus":
+        items = {
+            "first_ever_confirmed": {
+                "label": "first-ever Stake confirmation",
+                "complete": first_ever_confirmed,
+                "blocked": asked_first_ever and not first_ever_confirmed,
+            },
+            "stake_username": {
+                "label": "Stake username",
+                "complete": username,
+            },
+            "kyc_proof": {
+                "label": "KYC Level 2 screenshot",
+                "complete": bool(signals.get("kyc_detected")),
+            },
+            "code_proof": {
+                "label": "Donde code proof screenshot",
+                "complete": bool(signals.get("code_proof_detected")),
+            },
+        }
+    else:
+        items = {}
+
+    state["checklist"] = items
+    return items
+
+
+def checklist_status(state: Dict[str, Any]) -> Dict[str, Any]:
+    items = build_flow_checklist(state)
+    missing = [item["label"] for item in items.values() if not item.get("complete")]
+    blocked = any(item.get("blocked") for item in items.values())
+    complete = bool(items) and not missing and not blocked
+    return {"items": items, "missing": missing, "complete": complete, "blocked": blocked}
 
 
 def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
@@ -277,12 +417,21 @@ def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
             state["gw_platform"] = metadata.get("gw_platform")
         if metadata.get("gw_required_attachments"):
             state["gw_required_attachments"] = metadata.get("gw_required_attachments")
+        if metadata.get("proof_signals"):
+            merge_proof_signals(state, metadata.get("proof_signals"))
+        if metadata.get("checklist"):
+            state["checklist"] = metadata.get("checklist")
         if "donde" in text.lower():
             state["code"] = "Donde"
         if "first-ever" in text.lower():
             state["asked_first_ever"] = True
+        if text.strip().lower() in {"yes", "yep", "yeah"} and state.get("flow") == "50bonus" and state.get("asked_first_ever"):
+            state["first_ever_confirmed"] = "yes"
+        if text.strip().lower() in {"no", "nope"} and state.get("flow") == "50bonus" and state.get("asked_first_ever"):
+            state["first_ever_confirmed"] = "no"
 
     state["attachments_total"] = attachments_total
+    build_flow_checklist(state)
     return state
 
 
@@ -350,6 +499,9 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
             "analysis_confidence": state.get("analysis_confidence", 0.0),
             "gw_platform": state.get("gw_platform"),
             "gw_required_attachments": state.get("gw_required_attachments", 0),
+            "proof_signals": state.get("proof_signals", {}),
+            "checklist": state.get("checklist", {}),
+            "first_ever_confirmed": state.get("first_ever_confirmed"),
             "status": current_status or ("PAUSED" if channel.id in paused_channels else "OPEN"),
         },
     )
@@ -447,34 +599,21 @@ def proof_status_for_flow(state: Dict[str, Any], flow: Optional[str]) -> Dict[st
     flow = flow or "general"
     analysis_confidence = float(state.get("analysis_confidence") or 0.0)
     proof_ready = bool(state.get("proof_ready")) and analysis_confidence >= 0.62
-    username = state.get("username")
-    transaction_id = state.get("transaction_id")
     proof_type = state.get("proof_type") or "unknown"
-    missing: list[str] = []
+    checklist = checklist_status(state)
+    signals = state.get("proof_signals") or {}
     valid = False
 
     if flow == "gw":
-        valid = proof_ready and proof_type in {"winner", "generic"} and bool(username or state.get("attachments_total", 0))
-        if not proof_ready:
-            missing.append("winner proof screenshot")
-        if not username:
-            missing.append("Stake username")
+        valid = checklist["complete"] and bool(signals.get("winner_detected"))
     elif flow == "deposit":
-        valid = proof_ready and proof_type in {"deposit", "transaction", "generic"} and bool(username or transaction_id)
-        if not proof_ready:
-            missing.append("deposit proof screenshot")
-        if not username and not transaction_id:
-            missing.append("Stake username or transaction ID")
+        valid = checklist["complete"] and bool(signals.get("deposit_detected") or proof_ready)
     elif flow == "50bonus":
-        valid = proof_ready and proof_type in {"kyc", "code_proof", "generic"} and bool(username)
-        if not proof_ready:
-            missing.append("KYC / code proof screenshot")
-        if not username:
-            missing.append("Stake username")
+        valid = checklist["complete"] and bool(signals.get("kyc_detected") and signals.get("code_proof_detected"))
     else:
         valid = proof_ready
 
-    return {"valid": valid, "missing": missing, "proof_type": proof_type}
+    return {"valid": valid, "missing": checklist["missing"], "proof_type": proof_type, "checklist": checklist}
 
 
 def giveaway_requirements(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -515,6 +654,16 @@ def giveaway_requirements(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def missing_items_text(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
 async def handle_known_flow(
     channel: discord.TextChannel,
     message: discord.Message,
@@ -545,6 +694,8 @@ async def handle_known_flow(
             return True
 
         if lowered in {"yes", "yep", "yeah"}:
+            state["first_ever_confirmed"] = "yes"
+            build_flow_checklist(state)
             await human_reply(
                 channel,
                 "Perfect. Please send your Stake username, one KYC Level 2 screenshot, and one proof screenshot showing you used code Donde. Once those are in, I can escalate this for review.",
@@ -553,6 +704,8 @@ async def handle_known_flow(
             return True
 
         if lowered in {"no", "nope"}:
+            state["first_ever_confirmed"] = "no"
+            build_flow_checklist(state)
             await human_reply(
                 channel,
                 "Thanks for confirming. The $50 new-account bonus is only for a first-ever Stake account, so this one would not qualify. If you want, I can still help with raffles, leaderboards, or deposit bonuses.",
@@ -571,6 +724,15 @@ async def handle_known_flow(
             )
             return True
 
+        checklist = proof_state["checklist"]
+        if checklist["blocked"] and state.get("first_ever_confirmed") == "no":
+            await human_reply(
+                channel,
+                "This $50 flow is only for a first-ever Stake account, so I should not escalate it. If you need help with something else, tell me and I’ll guide you.",
+                intent="support",
+            )
+            return True
+
         if state.get("attachments_total", 0) == 0:
             await human_reply(
                 channel,
@@ -579,7 +741,7 @@ async def handle_known_flow(
             )
             return True
 
-        if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
+        if state.get("attachments_total", 0) > 0 and not (state.get("proof_signals", {}).get("kyc_detected") or state.get("proof_signals", {}).get("code_proof_detected")):
             await human_reply(
                 channel,
                 "I checked the screenshot, but it does not clearly show the KYC or Donde proof I need yet. Please send a clearer KYC/code-proof screenshot and your Stake username.",
@@ -587,10 +749,10 @@ async def handle_known_flow(
             )
             return True
 
-        if not state.get("username"):
+        if checklist["missing"]:
             await human_reply(
                 channel,
-                "I have the screenshot. Please send your Stake username as well so I can package this correctly for the team.",
+                f"I can keep this moving, but I still need {missing_items_text(checklist['missing'])}.",
                 intent="support",
             )
             return True
@@ -608,6 +770,7 @@ async def handle_known_flow(
 
         requirements = giveaway_requirements(state)
         proof_state = proof_status_for_flow(state, flow)
+        checklist = proof_state["checklist"]
 
         if requirements["complete"] and proof_state["valid"]:
             await escalate_ticket(
@@ -635,7 +798,7 @@ async def handle_known_flow(
             )
             return True
 
-        if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
+        if state.get("attachments_total", 0) > 0 and not state.get("proof_signals", {}).get("winner_detected"):
             await human_reply(
                 channel,
                 f"I can see an attachment, but it does not clearly look like the required {platform.title()} giveaway proof yet. Please send a clearer screenshot from the place you won, plus the other required proofs.",
@@ -643,11 +806,11 @@ async def handle_known_flow(
             )
             return True
 
-        if requirements["missing"]:
-            missing_text = ", ".join(requirements["missing"])
+        if checklist["missing"]:
+            missing_text = missing_items_text(checklist["missing"])
             await human_reply(
                 channel,
-                f"I can keep this moving, but I still need: {missing_text}. For Discord/Twitter wins, the Donde code proof and YouTube proof are both compulsory before escalation.",
+                f"I can keep this moving, but I still need {missing_text}. For Discord/Twitter wins, the Donde code proof and YouTube proof are both compulsory before escalation.",
                 intent="support",
             )
             return True
@@ -676,6 +839,7 @@ async def handle_known_flow(
             )
             return True
 
+        checklist = proof_state["checklist"]
         if state.get("attachments_total", 0) == 0:
             await human_reply(
                 channel,
@@ -684,7 +848,7 @@ async def handle_known_flow(
             )
             return True
 
-        if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
+        if state.get("attachments_total", 0) > 0 and not (state.get("proof_signals", {}).get("deposit_detected") or state.get("transaction_id")):
             await human_reply(
                 channel,
                 "I checked the attachment, but it does not clearly show the deposit proof yet. Please send a clearer deposit screenshot or payment confirmation, plus your Stake username or transaction ID.",
@@ -692,10 +856,10 @@ async def handle_known_flow(
             )
             return True
 
-        if state.get("proof_ready") and not state.get("username") and not state.get("transaction_id"):
+        if checklist["missing"]:
             await human_reply(
                 channel,
-                "I can see the deposit proof. Please send your Stake username or transaction ID so I can route this correctly.",
+                f"I can see the deposit proof. Please send {missing_items_text(checklist['missing'])} so I can route this correctly.",
                 intent="support",
             )
             return True
@@ -877,6 +1041,13 @@ async def on_message(message: discord.Message):
 
             if "donde" in lowered:
                 state["code"] = "Donde"
+            if state.get("flow") == "50bonus" and state.get("asked_first_ever"):
+                if lowered in {"yes", "yep", "yeah"}:
+                    state["first_ever_confirmed"] = "yes"
+                elif lowered in {"no", "nope"}:
+                    state["first_ever_confirmed"] = "no"
+
+            merge_proof_signals(state, infer_text_proof_signals(raw, state.get("flow")))
 
             if attachments:
                 state["attachments_total"] = state.get("attachments_total", 0) + len(attachments)
@@ -896,6 +1067,23 @@ async def on_message(message: discord.Message):
                         state["username"] = analysis.get("username")
                     if analysis.get("transaction_id"):
                         state["transaction_id"] = analysis.get("transaction_id")
+                    merge_proof_signals(
+                        state,
+                        {
+                            "has_relevant_proof": analysis.get("has_relevant_proof"),
+                            "winner_detected": analysis.get("winner_detected"),
+                            "deposit_detected": analysis.get("deposit_detected"),
+                            "kyc_detected": analysis.get("kyc_detected"),
+                            "code_proof_detected": analysis.get("code_proof_detected"),
+                            "youtube_proof_detected": analysis.get("youtube_proof_detected"),
+                            "supporting_proof_detected": analysis.get("supporting_proof_detected"),
+                            "platform_hint": analysis.get("platform_hint"),
+                            "confidence": analysis.get("confidence"),
+                            "visible_text": analysis.get("visible_text"),
+                        },
+                    )
+                    if analysis.get("platform_hint") in {"discord", "twitter", "kick"} and not state.get("gw_platform"):
+                        state["gw_platform"] = analysis.get("platform_hint")
                     attachment_metadata = {
                         "proof_ready": state.get("proof_ready"),
                         "proof_type": state.get("proof_type"),
@@ -905,9 +1093,13 @@ async def on_message(message: discord.Message):
                         "transaction_id": analysis.get("transaction_id") or "",
                         "gw_platform": state.get("gw_platform"),
                         "gw_required_attachments": state.get("gw_required_attachments", 0),
+                        "proof_signals": state.get("proof_signals", {}),
+                        "visible_text": analysis.get("visible_text") or "",
                     }
                 except Exception as exc:
                     logger.exception("Attachment analysis failed: %s", exc)
+
+            build_flow_checklist(state)
 
             tm.append_message(
                 channel_id,

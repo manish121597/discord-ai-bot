@@ -37,8 +37,13 @@ ATTACHMENT_SCHEMA = {
     "winner_detected": False,
     "deposit_detected": False,
     "kyc_detected": False,
+    "code_proof_detected": False,
+    "youtube_proof_detected": False,
+    "supporting_proof_detected": False,
+    "platform_hint": "discord|twitter|kick|unknown",
     "username": "",
     "transaction_id": "",
+    "visible_text": "",
     "notes": "",
 }
 
@@ -148,8 +153,13 @@ def analyze_attachments(flow: str, user_text: str, attachments: List[dict]) -> D
             "winner_detected": False,
             "deposit_detected": False,
             "kyc_detected": False,
+            "code_proof_detected": False,
+            "youtube_proof_detected": False,
+            "supporting_proof_detected": False,
+            "platform_hint": "unknown",
             "username": "",
             "transaction_id": "",
+            "visible_text": "",
             "notes": "",
         }
 
@@ -163,8 +173,15 @@ Attachment filenames: {', '.join(filenames)}
 
 Decide whether the screenshots contain real support proof for this ticket.
 - For `gw`, look for giveaway winner announcements, winner screenshots, Twitter/Discord giveaway result proof, usernames.
+- For `gw`, separately decide whether you can see:
+  - winner proof from the platform where they won
+  - Donde code proof
+  - YouTube proof or comment proof
+  - extra supporting proof
+- If the screenshot suggests the platform is Discord, Twitter/X, or Kick, set `platform_hint`.
 - For `deposit`, look for deposit screenshots, balance/payment confirmations, transaction IDs.
 - For `50bonus`, look for KYC level screenshots, code proof, signup proof.
+- `visible_text` should be a short plain-English summary of any readable text that matters.
 - If the image is unrelated, cropped badly, unreadable, or does not clearly support the claim, set `has_relevant_proof=false`.
 - Do not invent a username or transaction ID if not visible.
 
@@ -182,8 +199,13 @@ Required JSON schema:
             "winner_detected": bool(payload.get("winner_detected")),
             "deposit_detected": bool(payload.get("deposit_detected")),
             "kyc_detected": bool(payload.get("kyc_detected")),
+            "code_proof_detected": bool(payload.get("code_proof_detected")),
+            "youtube_proof_detected": bool(payload.get("youtube_proof_detected")),
+            "supporting_proof_detected": bool(payload.get("supporting_proof_detected")),
+            "platform_hint": str(payload.get("platform_hint") or "unknown").strip().lower(),
             "username": str(payload.get("username") or "").strip(),
             "transaction_id": str(payload.get("transaction_id") or "").strip(),
+            "visible_text": str(payload.get("visible_text") or "").strip(),
             "notes": str(payload.get("notes") or "").strip(),
         }
     except Exception as exc:
