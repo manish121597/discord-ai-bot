@@ -106,10 +106,24 @@ def normalize_attachments(attachments: Optional[List[Any]]) -> List[Dict[str, st
         if isinstance(item, dict):
             filename = str(item.get("filename") or item.get("name") or "attachment")
             url = str(item.get("url") or "")
+            local_url = str(item.get("local_url") or "")
+            proxy_url = str(item.get("proxy_url") or "")
+            content_type = str(item.get("content_type") or item.get("mime_type") or "")
         else:
             filename = str(item)
             url = str(item)
-        normalized.append({"filename": filename, "url": url})
+            local_url = ""
+            proxy_url = ""
+            content_type = ""
+        normalized.append(
+            {
+                "filename": filename,
+                "url": url,
+                "local_url": local_url,
+                "proxy_url": proxy_url,
+                "content_type": content_type,
+            }
+        )
     return normalized
 
 

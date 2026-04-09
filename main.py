@@ -331,6 +331,7 @@ def build_admin_summary(user: discord.User, reason: str, username_text: str, pro
 
 
 def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], message: discord.Message):
+    current_status = tm.load_status_map().get(str(channel.id))
     tm.save_ticket_meta(
         channel.id,
         {
@@ -349,7 +350,7 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
             "analysis_confidence": state.get("analysis_confidence", 0.0),
             "gw_platform": state.get("gw_platform"),
             "gw_required_attachments": state.get("gw_required_attachments", 0),
-            "status": "PAUSED" if channel.id in paused_channels else "OPEN",
+            "status": current_status or ("PAUSED" if channel.id in paused_channels else "OPEN"),
         },
     )
 
@@ -381,12 +382,13 @@ def sync_ticket_to_dashboard(ticket_id: int):
         headers = {"Content-Type": "application/json"}
         if SYNC_SECRET:
             headers["X-Sync-Secret"] = SYNC_SECRET
-        requests.post(
+        response = requests.post(
             f"{DASHBOARD_SYNC_URL}/api/internal/sync_ticket",
             headers=headers,
             json=payload,
             timeout=8,
         )
+        response.raise_for_status()
     except Exception as exc:
         logger.exception("Ticket sync failed: %s", exc)
 
@@ -428,7 +430,7 @@ async def escalate_ticket(
         f"Escalated to admins for {reason}.",
         author="X-Boty",
         intent="support",
-        metadata={"status": "ESCALATED"},
+        metadata={"status": "ESCALATED", "admin_summary": summary},
     )
     sync_ticket_to_dashboard(channel_id)
 
@@ -822,8 +824,8 @@ async def on_message(message: discord.Message):
             return
 
         channel_id = channel.id
-        if channel_id in paused_channels:
-            return
+        current_status = tm.load_status_map().get(str(channel_id), "OPEN")
+        ticket_is_locked = current_status in {"ESCALATED", "PAUSED", "CLOSED"} or channel_id in paused_channels
 
         async with get_lock(channel_id):
             state = refresh_state_from_history(channel_id)
@@ -842,7 +844,10 @@ async def on_message(message: discord.Message):
                 attachments.append(
                     {
                         "filename": attachment.filename,
-                        "url": f"/attachments/{channel_id}/{attachment.filename}",
+                        "url": attachment.url,
+                        "proxy_url": getattr(attachment, "proxy_url", "") or "",
+                        "local_url": f"/attachments/{channel_id}/{attachment.filename}",
+                        "content_type": getattr(attachment, "content_type", "") or "",
                     }
                 )
                 attachment_inputs.append(
@@ -913,7 +918,8 @@ async def on_message(message: discord.Message):
                 intent=intent,
                 metadata={"channel_name": channel.name, **attachment_metadata},
             )
-            tm.set_ticket_status(channel_id, "OPEN")
+            if current_status not in {"ESCALATED", "PAUSED", "CLOSED"}:
+                tm.set_ticket_status(channel_id, "OPEN")
             build_ticket_metadata(channel, state, message)
             sync_ticket_to_dashboard(channel_id)
 
@@ -923,6 +929,15 @@ async def on_message(message: discord.Message):
                     await channel.edit(name=f"{state['flow']}-{first_name}"[:90])
                 except Exception:
                     logger.debug("Unable to rename channel %s", channel.id)
+
+            if ticket_is_locked:
+                logger.info(
+                    "Ticket %s is %s; synced latest user activity without auto-reply",
+                    channel_id,
+                    current_status,
+                )
+                sync_ticket_to_dashboard(channel_id)
+                return
 
             if intent == "casual" and len(raw.split()) <= 4 and not attachments and not state.get("flow"):
                 await human_reply(

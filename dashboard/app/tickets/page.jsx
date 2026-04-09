@@ -87,35 +87,9 @@ export default function TicketsPage() {
             },
             ...current,
           ].slice(0, 4));
-
-          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-            new Notification(event.event === "new_ticket" ? "New ticket" : "Ticket updated", {
-              body: ticket.last_message || ticket.summary || `Ticket #${ticket.ticket_id} needs attention.`,
-            });
-          }
-
-          try {
-            const context = new window.AudioContext();
-            const oscillator = context.createOscillator();
-            const gain = context.createGain();
-            oscillator.type = ticket.priority === "HIGH" ? "sawtooth" : "sine";
-            oscillator.frequency.value = ticket.priority === "HIGH" ? 720 : 540;
-            gain.gain.value = 0.015;
-            oscillator.connect(gain);
-            gain.connect(context.destination);
-            oscillator.start();
-            setTimeout(() => {
-              oscillator.stop();
-              context.close().catch(() => {});
-            }, 140);
-          } catch {}
         }
       },
     });
-
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
 
     return () => connection.close();
   }, []);

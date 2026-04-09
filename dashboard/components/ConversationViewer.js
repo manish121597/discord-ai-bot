@@ -19,7 +19,23 @@ function getAttachmentUrl(base, attachment) {
       : `${base}${attachment.url.startsWith("/") ? "" : "/"}${attachment.url}`;
   }
 
+  if (attachment.proxy_url) {
+    return attachment.proxy_url;
+  }
+
+  if (attachment.local_url) {
+    return attachment.local_url.startsWith("http")
+      ? attachment.local_url
+      : `${base}${attachment.local_url.startsWith("/") ? "" : "/"}${attachment.local_url}`;
+  }
+
   return "";
+}
+
+function isImageAttachment(attachment) {
+  const contentType = attachment?.content_type || "";
+  const filename = attachment?.filename || "";
+  return contentType.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename);
 }
 
 export default function ConversationViewer({ messages, baseUrl }) {
@@ -47,12 +63,17 @@ export default function ConversationViewer({ messages, baseUrl }) {
                       return null;
                     }
                     return (
-                      <a key={attachmentIndex} href={url} target="_blank" rel="noreferrer">
-                        <img
-                          src={url}
-                          alt={`Attachment ${attachmentIndex + 1}`}
-                          className="attachment-image"
-                        />
+                      <a key={attachmentIndex} href={url} target="_blank" rel="noreferrer" className="attachment-card">
+                        {isImageAttachment(attachment) ? (
+                          <img
+                            src={url}
+                            alt={attachment.filename || `Attachment ${attachmentIndex + 1}`}
+                            className="attachment-image"
+                          />
+                        ) : null}
+                        <span className="attachment-label">
+                          {attachment.filename || `Attachment ${attachmentIndex + 1}`}
+                        </span>
                       </a>
                     );
                   })}
