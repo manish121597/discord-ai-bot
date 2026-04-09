@@ -211,6 +211,7 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
         channel_id,
         {
             "flow": None,
+            "gw_platform": None,
             "username": None,
             "transaction_id": None,
             "code": None,
@@ -224,8 +225,20 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
             "proof_notes": "",
             "proof_type": None,
             "analysis_confidence": 0.0,
+            "gw_required_attachments": 0,
         },
     )
+
+
+def detect_giveaway_platform(text: str) -> Optional[str]:
+    lowered = (text or "").lower()
+    if any(word in lowered for word in ["twitter", "x.com", "x giveaway", "tweet", "retweet"]):
+        return "twitter"
+    if "discord" in lowered:
+        return "discord"
+    if "kick" in lowered:
+        return "kick"
+    return None
 
 
 def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
@@ -239,6 +252,9 @@ def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
         category = detect_category(text)
         if category:
             state["flow"] = category
+        platform = detect_giveaway_platform(text)
+        if platform:
+            state["gw_platform"] = platform
         username = extract_username_from_text(text)
         if username:
             state["username"] = username
@@ -257,6 +273,10 @@ def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
             state["proof_notes"] = metadata.get("proof_notes")
         if metadata.get("analysis_confidence"):
             state["analysis_confidence"] = metadata.get("analysis_confidence")
+        if metadata.get("gw_platform"):
+            state["gw_platform"] = metadata.get("gw_platform")
+        if metadata.get("gw_required_attachments"):
+            state["gw_required_attachments"] = metadata.get("gw_required_attachments")
         if "donde" in text.lower():
             state["code"] = "Donde"
         if "first-ever" in text.lower():
@@ -327,6 +347,8 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
             "proof_type": state.get("proof_type"),
             "proof_notes": state.get("proof_notes"),
             "analysis_confidence": state.get("analysis_confidence", 0.0),
+            "gw_platform": state.get("gw_platform"),
+            "gw_required_attachments": state.get("gw_required_attachments", 0),
             "status": "PAUSED" if channel.id in paused_channels else "OPEN",
         },
     )
@@ -453,6 +475,44 @@ def proof_status_for_flow(state: Dict[str, Any], flow: Optional[str]) -> Dict[st
     return {"valid": valid, "missing": missing, "proof_type": proof_type}
 
 
+def giveaway_requirements(state: Dict[str, Any]) -> Dict[str, Any]:
+    platform = state.get("gw_platform")
+    username = state.get("username")
+    attachments_total = int(state.get("attachments_total", 0) or 0)
+
+    if platform in {"discord", "twitter"}:
+        required_attachments = 3
+        missing = []
+        if attachments_total < 1:
+            missing.append(f"{platform} winner proof screenshot")
+        if attachments_total < 2:
+            missing.append("Donde code proof screenshot")
+        if attachments_total < 3:
+            missing.append("YouTube proof screenshot")
+    elif platform == "kick":
+        required_attachments = 2
+        missing = []
+        if attachments_total < 1:
+            missing.append("Kick winner proof screenshot")
+        if attachments_total < 2:
+            missing.append("extra supporting proof screenshot")
+    else:
+        required_attachments = 0
+        missing = ["where you won the giveaway (Discord, Twitter/X, or Kick)"]
+
+    if not username:
+        missing.append("Stake username")
+
+    state["gw_required_attachments"] = required_attachments
+    complete = bool(platform) and attachments_total >= required_attachments and bool(username)
+    return {
+        "platform": platform,
+        "required_attachments": required_attachments,
+        "missing": missing,
+        "complete": complete,
+    }
+
+
 async def handle_known_flow(
     channel: discord.TextChannel,
     message: discord.Message,
@@ -534,33 +594,41 @@ async def handle_known_flow(
             return True
 
     if flow == "gw":
-        if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
-            proof_state = proof_status_for_flow(state, flow)
-            if proof_state["valid"]:
-                await escalate_ticket(
-                    channel,
-                    message.author,
-                    reason="giveaway payout review",
-                    username_text=state.get("username") or "",
-                    proof=True,
-                )
-                return True
+        platform = state.get("gw_platform")
+        if not platform:
+            await human_reply(
+                channel,
+                "Before I move this giveaway payout forward, tell me where you won it: Discord, Twitter/X, or Kick.",
+                intent="support",
+                append_closing=False,
+            )
+            return True
 
+        requirements = giveaway_requirements(state)
         proof_state = proof_status_for_flow(state, flow)
-        if proof_state["valid"]:
+
+        if requirements["complete"] and proof_state["valid"]:
             await escalate_ticket(
                 channel,
                 message.author,
-                reason="giveaway payout review",
+                reason=f"giveaway payout review ({platform})",
                 username_text=state.get("username") or "",
                 proof=True,
             )
             return True
 
-        if state.get("attachments_total", 0) == 0:
+        if platform in {"discord", "twitter"} and state.get("attachments_total", 0) == 0:
             await human_reply(
                 channel,
-                "Congrats on the win. Please attach the winner screenshot, and if possible include your Stake username in the same message so I can escalate it faster.",
+                f"Congrats on the win. Since you won on {platform.title()}, I need three things before I escalate payout review: the {platform.title()} winner proof screenshot, your Donde code proof screenshot, and your YouTube proof screenshot. Please also include your Stake username.",
+                intent="support",
+            )
+            return True
+
+        if platform == "kick" and state.get("attachments_total", 0) == 0:
+            await human_reply(
+                channel,
+                "Congrats on the Kick win. Please send the Kick winner proof screenshot, one extra supporting proof screenshot, and your Stake username so I can review it properly.",
                 intent="support",
             )
             return True
@@ -568,15 +636,16 @@ async def handle_known_flow(
         if state.get("attachments_total", 0) > 0 and not state.get("proof_ready"):
             await human_reply(
                 channel,
-                "I can see an attachment, but it does not clearly look like the giveaway winner proof yet. Please send the winner announcement screenshot from Twitter or Discord, and include your Stake username.",
+                f"I can see an attachment, but it does not clearly look like the required {platform.title()} giveaway proof yet. Please send a clearer screenshot from the place you won, plus the other required proofs.",
                 intent="support",
             )
             return True
 
-        if state.get("proof_ready") and not state.get("username"):
+        if requirements["missing"]:
+            missing_text = ", ".join(requirements["missing"])
             await human_reply(
                 channel,
-                "I can work with that winner screenshot. Please send your Stake username as well so I can escalate the payout review.",
+                f"I can keep this moving, but I still need: {missing_text}. For Discord/Twitter wins, the Donde code proof and YouTube proof are both compulsory before escalation.",
                 intent="support",
             )
             return True
@@ -792,6 +861,10 @@ async def on_message(message: discord.Message):
             elif "deposit" in lowered:
                 state["flow"] = "deposit"
             state["intent"] = intent
+            platform = detect_giveaway_platform(raw)
+            if platform:
+                state["gw_platform"] = platform
+                state["gw_required_attachments"] = 2 if platform == "kick" else 3
 
             username = extract_username_from_text(raw)
             if username:
@@ -825,6 +898,8 @@ async def on_message(message: discord.Message):
                         "analysis_confidence": state.get("analysis_confidence"),
                         "extracted_username": analysis.get("username") or "",
                         "transaction_id": analysis.get("transaction_id") or "",
+                        "gw_platform": state.get("gw_platform"),
+                        "gw_required_attachments": state.get("gw_required_attachments", 0),
                     }
                 except Exception as exc:
                     logger.exception("Attachment analysis failed: %s", exc)
