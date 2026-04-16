@@ -1,0 +1,38 @@
+{
+  "flows": {
+    "gw": {
+      "active": true,
+      "require_username": false,
+      "platforms": {
+        "twitter": {
+          "requirements": {
+            "winner_proof": "X/Twitter winner proof screenshot",
+            "code_proof": "Donde code proof screenshot",
+            "youtube_proof": "YouTube proof screenshot"
+          }
+        },
+        "discord": {
+          "requirements": {
+            "winner_proof": "Discord winner proof screenshot",
+            "code_proof": "Donde code proof screenshot",
+            "level2_proof": "Level 2 / verification proof screenshot"
+          }
+        },
+        "kick": {
+          "requirements": {
+            "winner_proof": "Kick winner proof screenshot",
+            "supporting_proof": "extra supporting proof screenshot"
+          }
+        }
+      }
+    },
+    "deposit": {
+      "active": false,
+      "inactive_reply": "The deposit bonus offer does not appear to be active right now. If this changed very recently, an admin can still confirm it for you manually."
+    },
+    "50bonus": {
+      "active": false,
+      "inactive_reply": "The $50 free / new-account bonus does not appear to be active right now. If this changed very recently, an admin can still confirm it for you manually."
+    }
+  }
+}

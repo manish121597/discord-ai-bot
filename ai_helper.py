@@ -42,7 +42,6 @@ ATTACHMENT_SCHEMA = {
     "supporting_proof_detected": False,
     "platform_hint": "discord|twitter|kick|unknown",
     "username": "",
-    "transaction_id": "",
     "visible_text": "",
     "notes": "",
 }
@@ -158,7 +157,6 @@ def analyze_attachments(flow: str, user_text: str, attachments: List[dict]) -> D
             "supporting_proof_detected": False,
             "platform_hint": "unknown",
             "username": "",
-            "transaction_id": "",
             "visible_text": "",
             "notes": "",
         }
@@ -179,7 +177,7 @@ Decide whether the screenshots contain real support proof for this ticket.
   - YouTube proof or comment proof
   - extra supporting proof
 - If the screenshot suggests the platform is Discord, Twitter/X, or Kick, set `platform_hint`.
-- For `deposit`, look for deposit screenshots, balance/payment confirmations, transaction IDs.
+- For `deposit`, look for deposit screenshots or balance/payment confirmations.
 - For `50bonus`, look for KYC level screenshots, code proof, signup proof.
 - `visible_text` should be a short plain-English summary of any readable text that matters.
 - If the image is unrelated, cropped badly, unreadable, or does not clearly support the claim, set `has_relevant_proof=false`.
@@ -204,7 +202,6 @@ Required JSON schema:
             "supporting_proof_detected": bool(payload.get("supporting_proof_detected")),
             "platform_hint": str(payload.get("platform_hint") or "unknown").strip().lower(),
             "username": str(payload.get("username") or "").strip(),
-            "transaction_id": str(payload.get("transaction_id") or "").strip(),
             "visible_text": str(payload.get("visible_text") or "").strip(),
             "notes": str(payload.get("notes") or "").strip(),
         }

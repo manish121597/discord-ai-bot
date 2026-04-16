@@ -30,11 +30,57 @@ except Exception:
 load_dotenv()
 
 KNOW_PATH = "knowledge.json"
+RULES_PATH = "bot_rules.json"
 if os.path.exists(KNOW_PATH):
     with open(KNOW_PATH, "r", encoding="utf-8") as handle:
         KNOWLEDGE = json.load(handle)
 else:
     KNOWLEDGE = {}
+
+DEFAULT_BOT_RULES = {
+    "flows": {
+        "gw": {
+            "active": True,
+            "require_username": False,
+            "platforms": {
+                "twitter": {
+                    "requirements": {
+                        "winner_proof": "X/Twitter winner proof screenshot",
+                        "code_proof": "Donde code proof screenshot",
+                        "youtube_proof": "YouTube proof screenshot",
+                    }
+                },
+                "discord": {
+                    "requirements": {
+                        "winner_proof": "Discord winner proof screenshot",
+                        "code_proof": "Donde code proof screenshot",
+                        "level2_proof": "Level 2 / verification proof screenshot",
+                    }
+                },
+                "kick": {
+                    "requirements": {
+                        "winner_proof": "Kick winner proof screenshot",
+                        "supporting_proof": "extra supporting proof screenshot",
+                    }
+                },
+            },
+        },
+        "deposit": {
+            "active": False,
+            "inactive_reply": "The deposit bonus offer does not appear to be active right now. If this changed very recently, an admin can still confirm it for you manually.",
+        },
+        "50bonus": {
+            "active": False,
+            "inactive_reply": "The $50 free / new-account bonus does not appear to be active right now. If this changed very recently, an admin can still confirm it for you manually.",
+        },
+    }
+}
+
+if os.path.exists(RULES_PATH):
+    with open(RULES_PATH, "r", encoding="utf-8") as handle:
+        BOT_RULES = json.load(handle)
+else:
+    BOT_RULES = DEFAULT_BOT_RULES
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("discord_bot")
@@ -202,13 +248,32 @@ def infer_text_proof_signals(text: str, flow: Optional[str]) -> Dict[str, Any]:
     lowered = (text or "").lower()
     return {
         "winner_detected": flow == "gw" and any(word in lowered for word in ["winner", "won", "giveaway", "gw win"]),
-        "deposit_detected": flow == "deposit" and any(word in lowered for word in ["deposit", "payment", "transaction", "txid"]),
+        "deposit_detected": flow == "deposit" and any(word in lowered for word in ["deposit", "payment"]),
         "kyc_detected": flow == "50bonus" and "kyc" in lowered,
         "code_proof_detected": any(word in lowered for word in ["donde code", "code proof", "used code donde", "code donde"]),
         "youtube_proof_detected": any(word in lowered for word in ["youtube", "yt proof", "yt comment", "comment proof"]),
         "supporting_proof_detected": any(word in lowered for word in ["supporting proof", "extra proof"]),
         "platform_hint": detect_giveaway_platform(text) or "unknown",
     }
+
+
+def flow_rule(flow: Optional[str]) -> Dict[str, Any]:
+    return dict(BOT_RULES.get("flows", {}).get(flow or "", {}))
+
+
+def flow_active(flow: Optional[str]) -> bool:
+    if not flow:
+        return True
+    return bool(flow_rule(flow).get("active", True))
+
+
+def flow_inactive_reply(flow: Optional[str]) -> str:
+    return str(
+        flow_rule(flow).get(
+            "inactive_reply",
+            "This offer does not appear to be active right now. An admin can still confirm it manually if needed.",
+        )
+    )
 
 
 def already_tagged(name: str) -> bool:
@@ -226,7 +291,6 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
             "flow": None,
             "gw_platform": None,
             "username": None,
-            "transaction_id": None,
             "code": None,
             "attachments_total": 0,
             "escalated": False,
@@ -289,10 +353,10 @@ def build_flow_checklist(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     flow = state.get("flow")
     signals = merge_proof_signals(state, state.get("proof_signals") or {})
     username = bool(state.get("username"))
-    transaction = bool(state.get("transaction_id"))
     platform = state.get("gw_platform")
     asked_first_ever = bool(state.get("asked_first_ever"))
     first_ever_confirmed = str(state.get("first_ever_confirmed") or "").lower() in {"yes", "true", "confirmed"}
+    gw_require_username = bool(flow_rule("gw").get("require_username", False))
 
     if flow == "gw":
         items = {
@@ -300,11 +364,12 @@ def build_flow_checklist(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
                 "label": "where you won the giveaway",
                 "complete": bool(platform),
             },
-            "stake_username": {
+        }
+        if gw_require_username:
+            items["stake_username"] = {
                 "label": "Stake username",
                 "complete": username,
-            },
-        }
+            }
         if platform in {"discord", "twitter"}:
             items.update(
                 {
@@ -340,10 +405,6 @@ def build_flow_checklist(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             "deposit_proof": {
                 "label": "deposit proof screenshot",
                 "complete": bool(signals.get("deposit_detected") or state.get("proof_ready")),
-            },
-            "stake_or_txid": {
-                "label": "Stake username or transaction ID",
-                "complete": username or transaction,
             },
         }
     elif flow == "50bonus":
@@ -402,9 +463,6 @@ def refresh_state_from_history(channel_id: int) -> Dict[str, Any]:
         extracted_username = metadata.get("extracted_username")
         if extracted_username:
             state["username"] = extracted_username
-        transaction_id = metadata.get("transaction_id")
-        if transaction_id:
-            state["transaction_id"] = transaction_id
         if metadata.get("proof_ready"):
             state["proof_ready"] = True
         if metadata.get("proof_type"):
@@ -470,13 +528,15 @@ async def human_reply(
 
 def build_admin_summary(user: discord.User, reason: str, username_text: str, proof: bool) -> str:
     mention = admin_mention(user.guild if isinstance(user, discord.Member) else None)
-    return (
-        f"Admin review requested {mention}\n"
-        f"> reason: {reason}\n"
-        f"> user: {user} ({getattr(user, 'id', 'unknown')})\n"
-        f"> stake username: {username_text or 'not provided'}\n"
-        f"> proof attached: {'yes' if proof else 'no'}"
-    )
+    lines = [
+        f"Admin review requested {mention}",
+        f"> reason: {reason}",
+        f"> user: {user} ({getattr(user, 'id', 'unknown')})",
+    ]
+    if username_text:
+        lines.append(f"> stake username: {username_text}")
+    lines.append(f"> proof attached: {'yes' if proof else 'no'}")
+    return "\n".join(lines)
 
 
 def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], message: discord.Message):
@@ -491,7 +551,6 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
             "category": state.get("flow"),
             "intent": state.get("intent"),
             "username": state.get("username"),
-            "transaction_id": state.get("transaction_id"),
             "attachments_total": state.get("attachments_total", 0),
             "proof_ready": state.get("proof_ready", False),
             "proof_type": state.get("proof_type"),
@@ -618,34 +677,12 @@ def proof_status_for_flow(state: Dict[str, Any], flow: Optional[str]) -> Dict[st
 
 def giveaway_requirements(state: Dict[str, Any]) -> Dict[str, Any]:
     platform = state.get("gw_platform")
-    username = state.get("username")
-    attachments_total = int(state.get("attachments_total", 0) or 0)
-
-    if platform in {"discord", "twitter"}:
-        required_attachments = 3
-        missing = []
-        if attachments_total < 1:
-            missing.append(f"{platform} winner proof screenshot")
-        if attachments_total < 2:
-            missing.append("Donde code proof screenshot")
-        if attachments_total < 3:
-            missing.append("YouTube proof screenshot")
-    elif platform == "kick":
-        required_attachments = 2
-        missing = []
-        if attachments_total < 1:
-            missing.append("Kick winner proof screenshot")
-        if attachments_total < 2:
-            missing.append("extra supporting proof screenshot")
-    else:
-        required_attachments = 0
-        missing = ["where you won the giveaway (Discord, Twitter/X, or Kick)"]
-
-    if not username:
-        missing.append("Stake username")
-
+    platform_rules = flow_rule("gw").get("platforms", {}).get(platform or "", {})
+    requirements = platform_rules.get("requirements", {})
+    required_attachments = len(requirements)
+    missing = list(requirements.values()) if platform_rules else ["where you won the giveaway (Discord, Twitter/X, or Kick)"]
     state["gw_required_attachments"] = required_attachments
-    complete = bool(platform) and attachments_total >= required_attachments and bool(username)
+    complete = checklist_status(state)["complete"] if platform_rules else False
     return {
         "platform": platform,
         "required_attachments": required_attachments,
@@ -672,6 +709,9 @@ async def handle_known_flow(
     lowered: str,
 ) -> bool:
     flow = state.get("flow")
+    if flow in {"deposit", "50bonus"} and not flow_active(flow):
+        await human_reply(channel, flow_inactive_reply(flow), intent="support", append_closing=False)
+        return True
 
     if is_acknowledgement(raw):
         await human_reply(
@@ -777,23 +817,25 @@ async def handle_known_flow(
                 channel,
                 message.author,
                 reason=f"giveaway payout review ({platform})",
-                username_text=state.get("username") or "",
+                username_text="",
                 proof=True,
             )
             return True
 
         if platform in {"discord", "twitter"} and state.get("attachments_total", 0) == 0:
+            platform_requirements = flow_rule("gw").get("platforms", {}).get(platform, {}).get("requirements", {})
             await human_reply(
                 channel,
-                f"Congrats on the win. Since you won on {platform.title()}, I need three things before I escalate payout review: the {platform.title()} winner proof screenshot, your Donde code proof screenshot, and your YouTube proof screenshot. Please also include your Stake username.",
+                f"Congrats on the win. Since you won on {platform.title()}, I need {missing_items_text(list(platform_requirements.values()))} before I escalate payout review.",
                 intent="support",
             )
             return True
 
         if platform == "kick" and state.get("attachments_total", 0) == 0:
+            platform_requirements = flow_rule("gw").get("platforms", {}).get("kick", {}).get("requirements", {})
             await human_reply(
                 channel,
-                "Congrats on the Kick win. Please send the Kick winner proof screenshot, one extra supporting proof screenshot, and your Stake username so I can review it properly.",
+                f"Congrats on the Kick win. Please send {missing_items_text(list(platform_requirements.values()))} so I can review it properly.",
                 intent="support",
             )
             return True
@@ -810,56 +852,7 @@ async def handle_known_flow(
             missing_text = missing_items_text(checklist["missing"])
             await human_reply(
                 channel,
-                f"I can keep this moving, but I still need {missing_text}. For Discord/Twitter wins, the Donde code proof and YouTube proof are both compulsory before escalation.",
-                intent="support",
-            )
-            return True
-
-    if flow == "deposit":
-        if mentions_existing_proof(raw) and state.get("attachments_total", 0) >= 1:
-            proof_state = proof_status_for_flow(state, flow)
-            if proof_state["valid"]:
-                await escalate_ticket(
-                    channel,
-                    message.author,
-                    reason="deposit bonus verification",
-                    username_text=state.get("username") or "",
-                    proof=True,
-                )
-                return True
-
-        proof_state = proof_status_for_flow(state, flow)
-        if proof_state["valid"]:
-            await escalate_ticket(
-                channel,
-                message.author,
-                reason="deposit bonus verification",
-                username_text=state.get("username") or "",
-                proof=True,
-            )
-            return True
-
-        checklist = proof_state["checklist"]
-        if state.get("attachments_total", 0) == 0:
-            await human_reply(
-                channel,
-                "To verify a deposit claim, please attach the deposit screenshot and mention your Stake username. Once I have both, I can route it correctly.",
-                intent="support",
-            )
-            return True
-
-        if state.get("attachments_total", 0) > 0 and not (state.get("proof_signals", {}).get("deposit_detected") or state.get("transaction_id")):
-            await human_reply(
-                channel,
-                "I checked the attachment, but it does not clearly show the deposit proof yet. Please send a clearer deposit screenshot or payment confirmation, plus your Stake username or transaction ID.",
-                intent="support",
-            )
-            return True
-
-        if checklist["missing"]:
-            await human_reply(
-                channel,
-                f"I can see the deposit proof. Please send {missing_items_text(checklist['missing'])} so I can route this correctly.",
+                f"I can keep this moving, but I still need {missing_text}. For Twitter wins, X proof, Donde code proof, and YouTube proof are compulsory. For Discord wins, Discord win proof, Donde code proof, and Level 2 / verification proof are compulsory.",
                 intent="support",
             )
             return True
@@ -1065,8 +1058,6 @@ async def on_message(message: discord.Message):
                     state["analysis_confidence"] = float(analysis.get("confidence") or 0.0)
                     if analysis.get("username") and not state.get("username"):
                         state["username"] = analysis.get("username")
-                    if analysis.get("transaction_id"):
-                        state["transaction_id"] = analysis.get("transaction_id")
                     merge_proof_signals(
                         state,
                         {
@@ -1090,7 +1081,6 @@ async def on_message(message: discord.Message):
                         "proof_notes": state.get("proof_notes"),
                         "analysis_confidence": state.get("analysis_confidence"),
                         "extracted_username": analysis.get("username") or "",
-                        "transaction_id": analysis.get("transaction_id") or "",
                         "gw_platform": state.get("gw_platform"),
                         "gw_required_attachments": state.get("gw_required_attachments", 0),
                         "proof_signals": state.get("proof_signals", {}),
