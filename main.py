@@ -4,6 +4,7 @@ from keep_alive import keep_alive
 keep_alive()
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -76,14 +77,15 @@ DEFAULT_BOT_RULES = {
     }
 }
 
-if os.path.exists(RULES_PATH):
-    with open(RULES_PATH, "r", encoding="utf-8") as handle:
-        BOT_RULES = json.load(handle)
-else:
-    BOT_RULES = DEFAULT_BOT_RULES
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("discord_bot")
+
+BOT_RULES = copy.deepcopy(DEFAULT_BOT_RULES)
+RULES_STATE: Dict[str, Any] = {
+    "loaded_from": "defaults",
+    "loaded_at": None,
+    "error": None,
+}
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ADMIN_ROLE_NAME = os.getenv("ADMIN_ROLE_NAME", "Admin - Ticket Support")
@@ -155,6 +157,93 @@ tree = bot.tree
 paused_channels = tm.load_paused_channels()
 conversation_locks: Dict[int, asyncio.Lock] = {}
 ticket_state: Dict[int, Dict[str, Any]] = {}
+
+
+def validate_rules_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Rules config must be a JSON object.")
+
+    flows = payload.get("flows")
+    if not isinstance(flows, dict):
+        raise ValueError("`flows` must be an object.")
+
+    normalized = copy.deepcopy(DEFAULT_BOT_RULES)
+    for flow_name, flow_value in flows.items():
+        if not isinstance(flow_value, dict):
+            raise ValueError(f"`flows.{flow_name}` must be an object.")
+        normalized["flows"].setdefault(flow_name, {})
+        normalized["flows"][flow_name].update(flow_value)
+
+    gw_flow = normalized["flows"].get("gw", {})
+    if not isinstance(gw_flow.get("active"), bool):
+        raise ValueError("`flows.gw.active` must be true or false.")
+    if not isinstance(gw_flow.get("require_username", False), bool):
+        raise ValueError("`flows.gw.require_username` must be true or false.")
+
+    platforms = gw_flow.get("platforms")
+    if not isinstance(platforms, dict):
+        raise ValueError("`flows.gw.platforms` must be an object.")
+
+    allowed_platforms = {"twitter", "discord", "kick"}
+    for platform_name, platform_value in platforms.items():
+        if platform_name not in allowed_platforms:
+            raise ValueError(f"Unsupported gw platform `{platform_name}`.")
+        if not isinstance(platform_value, dict):
+            raise ValueError(f"`flows.gw.platforms.{platform_name}` must be an object.")
+        requirements = platform_value.get("requirements")
+        if not isinstance(requirements, dict) or not requirements:
+            raise ValueError(f"`flows.gw.platforms.{platform_name}.requirements` must be a non-empty object.")
+        for req_key, req_label in requirements.items():
+            if not isinstance(req_key, str) or not req_key.strip():
+                raise ValueError(f"`flows.gw.platforms.{platform_name}.requirements` contains an invalid key.")
+            if not isinstance(req_label, str) or not req_label.strip():
+                raise ValueError(f"`flows.gw.platforms.{platform_name}.requirements.{req_key}` must be a non-empty string.")
+
+    for flow_name in ("deposit", "50bonus"):
+        flow_value = normalized["flows"].get(flow_name, {})
+        if not isinstance(flow_value.get("active"), bool):
+            raise ValueError(f"`flows.{flow_name}.active` must be true or false.")
+        inactive_reply = flow_value.get("inactive_reply")
+        if not isinstance(inactive_reply, str) or not inactive_reply.strip():
+            raise ValueError(f"`flows.{flow_name}.inactive_reply` must be a non-empty string.")
+
+    return normalized
+
+
+def load_rules_config(*, initial: bool = False) -> Dict[str, Any]:
+    global BOT_RULES
+
+    source = RULES_PATH if os.path.exists(RULES_PATH) else "defaults"
+    candidate = copy.deepcopy(DEFAULT_BOT_RULES)
+    if os.path.exists(RULES_PATH):
+        with open(RULES_PATH, "r", encoding="utf-8") as handle:
+            candidate = json.load(handle)
+
+    normalized = validate_rules_config(candidate)
+    BOT_RULES = normalized
+    RULES_STATE.update(
+        {
+            "loaded_from": source,
+            "loaded_at": tm.utc_timestamp(),
+            "error": None,
+        }
+    )
+    logger.info("Rules loaded from %s", source)
+    return BOT_RULES
+
+
+try:
+    load_rules_config(initial=True)
+except Exception as exc:
+    RULES_STATE.update(
+        {
+            "loaded_from": "defaults",
+            "loaded_at": tm.utc_timestamp(),
+            "error": str(exc),
+        }
+    )
+    BOT_RULES = copy.deepcopy(DEFAULT_BOT_RULES)
+    logger.exception("Failed to load rules config; using defaults: %s", exc)
 
 
 def get_lock(channel_id: int) -> asyncio.Lock:
@@ -273,6 +362,36 @@ def flow_inactive_reply(flow: Optional[str]) -> str:
             "inactive_reply",
             "This offer does not appear to be active right now. An admin can still confirm it manually if needed.",
         )
+    )
+
+
+def rules_status_text() -> str:
+    gw = flow_rule("gw")
+    deposit = flow_rule("deposit")
+    bonus = flow_rule("50bonus")
+    return (
+        f"Rules source: {RULES_STATE.get('loaded_from')}\n"
+        f"Loaded at: {RULES_STATE.get('loaded_at') or 'unknown'}\n"
+        f"Last error: {RULES_STATE.get('error') or 'none'}\n"
+        f"GW active: {gw.get('active', True)} | require username: {gw.get('require_username', False)}\n"
+        f"Deposit active: {deposit.get('active', True)}\n"
+        f"$50 active: {bonus.get('active', True)}"
+    )
+
+
+def rules_summary_text() -> str:
+    gw = flow_rule("gw")
+    platform_lines = []
+    for platform_name, platform_value in gw.get("platforms", {}).items():
+        requirements = list((platform_value.get("requirements") or {}).values())
+        platform_lines.append(f"- {platform_name}: {', '.join(requirements) if requirements else 'no requirements'}")
+
+    return (
+        f"GW active: {gw.get('active', True)}\n"
+        f"GW require username: {gw.get('require_username', False)}\n"
+        f"{chr(10).join(platform_lines)}\n"
+        f"Deposit active: {flow_rule('deposit').get('active', True)}\n"
+        f"$50 active: {flow_rule('50bonus').get('active', True)}"
     )
 
 
@@ -948,6 +1067,42 @@ async def slash_status(interaction: discord.Interaction):
         f"| assigned: {assigned_to}"
     )
     await interaction.response.send_message(summary, ephemeral=True)
+
+
+@tree.command(name="reloadrules", description="Reload bot rules config (admin only)")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def slash_reloadrules(interaction: discord.Interaction):
+    global BOT_RULES
+
+    previous_rules = copy.deepcopy(BOT_RULES)
+    previous_state = dict(RULES_STATE)
+    try:
+        load_rules_config()
+        await interaction.response.send_message(
+            f"Rules reloaded successfully.\n\n{rules_status_text()}",
+            ephemeral=True,
+        )
+    except Exception as exc:
+        BOT_RULES = previous_rules
+        RULES_STATE.clear()
+        RULES_STATE.update(previous_state)
+        RULES_STATE["error"] = str(exc)
+        await interaction.response.send_message(
+            f"Rules reload failed: {exc}\n\nThe bot is still using the previous safe rules.",
+            ephemeral=True,
+        )
+
+
+@tree.command(name="rulesstatus", description="Show currently loaded rule status (admin only)")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def slash_rulesstatus(interaction: discord.Interaction):
+    await interaction.response.send_message(rules_status_text(), ephemeral=True)
+
+
+@tree.command(name="showrules", description="Show a quick summary of current bot rules (admin only)")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def slash_showrules(interaction: discord.Interaction):
+    await interaction.response.send_message(rules_summary_text(), ephemeral=True)
 
 
 @tree.error
