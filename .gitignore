@@ -1,6 +1,12 @@
-﻿.env
+.env
 .env.local
 dashboard/node_modules/
 dashboard/.next/
 __pycache__/
 *.pyc
+venv/
+ticket_data/
+active_channels.json
+admin_logs.json
+alerts.json
+*.jar

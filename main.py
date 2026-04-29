@@ -1,8 +1,3 @@
-# Donde Ticket Manager v4
-from keep_alive import keep_alive
-
-keep_alive()
-
 import asyncio
 import copy
 import json
@@ -18,6 +13,10 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 import ticket_manager as tm
+from keep_alive import keep_alive
+
+if os.getenv("DISABLE_KEEP_ALIVE") != "1":
+    keep_alive()
 
 try:
     from ai_helper import analyze_attachments, ask_ai
@@ -81,6 +80,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("discord_bot")
 
 BOT_RULES = copy.deepcopy(DEFAULT_BOT_RULES)
+SERVER_RULES: Dict[str, Dict[str, Any]] = {}
 RULES_STATE: Dict[str, Any] = {
     "loaded_from": "defaults",
     "loaded_at": None,
@@ -91,6 +91,25 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ADMIN_ROLE_NAME = os.getenv("ADMIN_ROLE_NAME", "Admin - Ticket Support")
 DASHBOARD_SYNC_URL = os.getenv("DASHBOARD_SYNC_URL", "").rstrip("/")
 SYNC_SECRET = os.getenv("SYNC_SECRET", "")
+
+FLOW_REPLY_TEMPLATES = {
+    "gw": {
+        "opening": "I can help with the giveaway payout review. Share the required proof here and I will check what is still missing.",
+        "fallback": "Send the giveaway proof in this ticket and I will review the next step.",
+    },
+    "lb": {
+        "opening": "I can help with leaderboard questions. Tell me whether this is about standings, rewards, or eligibility.",
+        "fallback": "Tell me the leaderboard issue and I will point you to the correct next step.",
+    },
+    "raffle": {
+        "opening": "I can help with raffle questions. Tell me whether this is about entry, eligibility, or a result.",
+        "fallback": "Send the raffle question here and I will guide the next step.",
+    },
+    "general": {
+        "opening": "I can help with this. Tell me the issue clearly and I will route it correctly.",
+        "fallback": "Tell me what you need help with and I will guide the next step.",
+    },
+}
 
 if not DISCORD_TOKEN:
     raise SystemExit("DISCORD_BOT_TOKEN missing from environment variables")
@@ -211,11 +230,34 @@ def validate_rules_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(inactive_reply, str) or not inactive_reply.strip():
             raise ValueError(f"`flows.{flow_name}.inactive_reply` must be a non-empty string.")
 
+    server_rules = payload.get("servers", {})
+    if server_rules is None:
+        server_rules = {}
+    if not isinstance(server_rules, dict):
+        raise ValueError("`servers` must be an object when provided.")
+
+    normalized["servers"] = {}
+    for server_id, server_payload in server_rules.items():
+        if not isinstance(server_payload, dict):
+            raise ValueError(f"`servers.{server_id}` must be an object.")
+        server_flows = server_payload.get("flows", {})
+        if not isinstance(server_flows, dict):
+            raise ValueError(f"`servers.{server_id}.flows` must be an object.")
+
+        merged_server = copy.deepcopy({"flows": normalized["flows"]})
+        for flow_name, flow_value in server_flows.items():
+            if not isinstance(flow_value, dict):
+                raise ValueError(f"`servers.{server_id}.flows.{flow_name}` must be an object.")
+            merged_server["flows"].setdefault(flow_name, {})
+            merged_server["flows"][flow_name].update(flow_value)
+
+        normalized["servers"][str(server_id)] = {"flows": merged_server["flows"]}
+
     return normalized
 
 
 def load_rules_config(*, initial: bool = False) -> Dict[str, Any]:
-    global BOT_RULES
+    global BOT_RULES, SERVER_RULES
 
     source = RULES_PATH if os.path.exists(RULES_PATH) else "defaults"
     candidate = copy.deepcopy(DEFAULT_BOT_RULES)
@@ -225,6 +267,7 @@ def load_rules_config(*, initial: bool = False) -> Dict[str, Any]:
 
     normalized = validate_rules_config(candidate)
     BOT_RULES = normalized
+    SERVER_RULES = dict(normalized.get("servers") or {})
     RULES_STATE.update(
         {
             "loaded_from": source,
@@ -354,10 +397,26 @@ def flow_rule(flow: Optional[str]) -> Dict[str, Any]:
     return dict(BOT_RULES.get("flows", {}).get(flow or "", {}))
 
 
+def rules_for_server(guild_id: Optional[int | str]) -> Dict[str, Any]:
+    if guild_id is None:
+        return BOT_RULES
+    return SERVER_RULES.get(str(guild_id), BOT_RULES)
+
+
+def flow_rule_for_server(flow: Optional[str], guild_id: Optional[int | str] = None) -> Dict[str, Any]:
+    return dict(rules_for_server(guild_id).get("flows", {}).get(flow or "", {}))
+
+
 def flow_active(flow: Optional[str]) -> bool:
     if not flow:
         return True
     return bool(flow_rule(flow).get("active", True))
+
+
+def flow_active_for_server(flow: Optional[str], guild_id: Optional[int | str] = None) -> bool:
+    if not flow:
+        return True
+    return bool(flow_rule_for_server(flow, guild_id).get("active", True))
 
 
 def flow_inactive_reply(flow: Optional[str]) -> str:
@@ -383,6 +442,22 @@ def rules_status_text() -> str:
     )
 
 
+def rules_status_text_for_server(guild_id: Optional[int | str]) -> str:
+    gw = flow_rule_for_server("gw", guild_id)
+    deposit = flow_rule_for_server("deposit", guild_id)
+    bonus = flow_rule_for_server("50bonus", guild_id)
+    server_label = str(guild_id) if guild_id is not None else "default"
+    return (
+        f"Rules source: {RULES_STATE.get('loaded_from')}\n"
+        f"Loaded at: {RULES_STATE.get('loaded_at') or 'unknown'}\n"
+        f"Last error: {RULES_STATE.get('error') or 'none'}\n"
+        f"Server scope: {server_label}\n"
+        f"GW active: {gw.get('active', True)} | require username: {gw.get('require_username', False)}\n"
+        f"Deposit active: {deposit.get('active', True)}\n"
+        f"$50 active: {bonus.get('active', True)}"
+    )
+
+
 def rules_summary_text() -> str:
     gw = flow_rule("gw")
     platform_lines = []
@@ -399,6 +474,23 @@ def rules_summary_text() -> str:
     )
 
 
+def rules_summary_text_for_server(guild_id: Optional[int | str]) -> str:
+    gw = flow_rule_for_server("gw", guild_id)
+    platform_lines = []
+    for platform_name, platform_value in gw.get("platforms", {}).items():
+        requirements = list((platform_value.get("requirements") or {}).values())
+        platform_lines.append(f"- {platform_name}: {', '.join(requirements) if requirements else 'no requirements'}")
+
+    return (
+        f"Server scope: {guild_id if guild_id is not None else 'default'}\n"
+        f"GW active: {gw.get('active', True)}\n"
+        f"GW require username: {gw.get('require_username', False)}\n"
+        f"{chr(10).join(platform_lines)}\n"
+        f"Deposit active: {flow_rule_for_server('deposit', guild_id).get('active', True)}\n"
+        f"$50 active: {flow_rule_for_server('50bonus', guild_id).get('active', True)}"
+    )
+
+
 def already_tagged(name: str) -> bool:
     lowered = (name or "").lower()
     return any(
@@ -412,6 +504,7 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
         channel_id,
         {
             "flow": None,
+            "guild_id": None,
             "gw_platform": None,
             "username": None,
             "code": None,
@@ -472,14 +565,31 @@ def merge_proof_signals(state: Dict[str, Any], incoming: Optional[Dict[str, Any]
     return signals
 
 
+def requirement_complete(requirement_key: str, signals: Dict[str, Any]) -> bool:
+    mapping = {
+        "winner_proof": bool(signals.get("winner_detected")),
+        "code_proof": bool(signals.get("code_proof_detected")),
+        "youtube_proof": bool(signals.get("youtube_proof_detected")),
+        "level2_proof": bool(signals.get("kyc_detected")),
+        "supporting_proof": bool(
+            signals.get("supporting_proof_detected")
+            or signals.get("code_proof_detected")
+            or signals.get("youtube_proof_detected")
+        ),
+        "deposit_proof": bool(signals.get("deposit_detected") or signals.get("has_relevant_proof")),
+    }
+    return bool(mapping.get(requirement_key, False))
+
+
 def build_flow_checklist(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     flow = state.get("flow")
     signals = merge_proof_signals(state, state.get("proof_signals") or {})
     username = bool(state.get("username"))
     platform = state.get("gw_platform")
+    guild_id = state.get("guild_id")
     asked_first_ever = bool(state.get("asked_first_ever"))
     first_ever_confirmed = str(state.get("first_ever_confirmed") or "").lower() in {"yes", "true", "confirmed"}
-    gw_require_username = bool(flow_rule("gw").get("require_username", False))
+    gw_require_username = bool(flow_rule_for_server("gw", guild_id).get("require_username", False))
 
     if flow == "gw":
         items = {
@@ -493,41 +603,20 @@ def build_flow_checklist(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
                 "label": "Stake username",
                 "complete": username,
             }
-        if platform in {"discord", "twitter"}:
-            items.update(
-                {
-                    "winner_proof": {
-                        "label": f"{platform.title()} winner proof screenshot",
-                        "complete": bool(signals.get("winner_detected")),
-                    },
-                    "code_proof": {
-                        "label": "Donde code proof screenshot",
-                        "complete": bool(signals.get("code_proof_detected")),
-                    },
-                    "youtube_proof": {
-                        "label": "YouTube proof screenshot",
-                        "complete": bool(signals.get("youtube_proof_detected")),
-                    },
-                }
+        if platform:
+            platform_requirements = (
+                flow_rule_for_server("gw", guild_id).get("platforms", {}).get(platform, {}).get("requirements", {})
             )
-        elif platform == "kick":
-            items.update(
-                {
-                    "winner_proof": {
-                        "label": "Kick winner proof screenshot",
-                        "complete": bool(signals.get("winner_detected")),
-                    },
-                    "supporting_proof": {
-                        "label": "extra supporting proof screenshot",
-                        "complete": bool(signals.get("supporting_proof_detected") or signals.get("code_proof_detected") or signals.get("youtube_proof_detected")),
-                    },
+            for requirement_key, label in platform_requirements.items():
+                items[requirement_key] = {
+                    "label": str(label),
+                    "complete": requirement_complete(requirement_key, signals),
                 }
-            )
     elif flow == "deposit":
         items = {
             "deposit_proof": {
                 "label": "deposit proof screenshot",
-                "complete": bool(signals.get("deposit_detected") or state.get("proof_ready")),
+                "complete": requirement_complete("deposit_proof", signals) or bool(state.get("proof_ready")),
             },
         }
     elif flow == "50bonus":
@@ -654,8 +743,9 @@ async def human_reply(
 def build_admin_summary(user: discord.User, reason: str, username_text: str, proof: bool, state: Optional[Dict[str, Any]] = None) -> str:
     mention = admin_mention(user.guild if isinstance(user, discord.Member) else None)
     snapshot = proof_summary_snapshot(state or {})
+    verdict = snapshot.get("health") or "awaiting proof"
     lines = [
-        f"Admin review requested {mention}",
+        f"Admin review requested [{verdict}] {mention}",
         f"> queue: {reason}",
         f"> customer: {user} ({getattr(user, 'id', 'unknown')})",
     ]
@@ -802,6 +892,15 @@ async def escalate_ticket(
     sync_ticket_to_dashboard(channel_id)
 
 
+def flow_inactive_reply_for_server(flow: Optional[str], guild_id: Optional[int | str] = None) -> str:
+    return str(
+        flow_rule_for_server(flow, guild_id).get(
+            "inactive_reply",
+            "This offer does not appear to be active right now. An admin can still confirm it manually if needed.",
+        )
+    )
+
+
 def proof_ready_for_escalation(state: Dict[str, Any], raw: str) -> bool:
     attachments_total = state.get("attachments_total", 0)
     text_present = bool(state.get("username")) or bool(raw.strip())
@@ -833,7 +932,7 @@ def proof_status_for_flow(state: Dict[str, Any], flow: Optional[str]) -> Dict[st
 
 def giveaway_requirements(state: Dict[str, Any]) -> Dict[str, Any]:
     platform = state.get("gw_platform")
-    platform_rules = flow_rule("gw").get("platforms", {}).get(platform or "", {})
+    platform_rules = flow_rule_for_server("gw", state.get("guild_id")).get("platforms", {}).get(platform or "", {})
     requirements = platform_rules.get("requirements", {})
     required_attachments = len(requirements)
     missing = list(requirements.values()) if platform_rules else ["where you won the giveaway (Discord, Twitter/X, or Kick)"]
@@ -859,6 +958,14 @@ def missing_items_text(items: list[str]) -> str:
 
 def normalized_reply_text(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", "", (text or "").lower())).strip()
+
+
+def reply_template(flow: Optional[str], key: str = "fallback") -> str:
+    flow_key = flow if flow in FLOW_REPLY_TEMPLATES else "general"
+    return FLOW_REPLY_TEMPLATES.get(flow_key, FLOW_REPLY_TEMPLATES["general"]).get(
+        key,
+        FLOW_REPLY_TEMPLATES["general"]["fallback"],
+    )
 
 
 def polished_acknowledgement(state: Dict[str, Any]) -> str:
@@ -1000,8 +1107,9 @@ async def handle_known_flow(
     lowered: str,
 ) -> bool:
     flow = state.get("flow")
-    if flow in {"deposit", "50bonus"} and not flow_active(flow):
-        await human_reply(channel, flow_inactive_reply(flow), intent="support", append_closing=False)
+    guild_id = state.get("guild_id")
+    if flow in {"deposit", "50bonus"} and not flow_active_for_server(flow, guild_id):
+        await human_reply(channel, flow_inactive_reply_for_server(flow, guild_id), intent="support", append_closing=False)
         return True
 
     if is_acknowledgement(raw):
@@ -1118,7 +1226,7 @@ async def handle_known_flow(
             return True
 
         if platform in {"discord", "twitter"} and state.get("attachments_total", 0) == 0:
-            platform_requirements = flow_rule("gw").get("platforms", {}).get(platform, {}).get("requirements", {})
+            platform_requirements = flow_rule_for_server("gw", guild_id).get("platforms", {}).get(platform, {}).get("requirements", {})
             await human_reply(
                 channel,
                 f"Congrats on the win. Since you won on {platform.title()}, I need {missing_items_text(list(platform_requirements.values()))} before I escalate payout review.",
@@ -1127,7 +1235,7 @@ async def handle_known_flow(
             return True
 
         if platform == "kick" and state.get("attachments_total", 0) == 0:
-            platform_requirements = flow_rule("gw").get("platforms", {}).get("kick", {}).get("requirements", {})
+            platform_requirements = flow_rule_for_server("gw", guild_id).get("platforms", {}).get("kick", {}).get("requirements", {})
             await human_reply(
                 channel,
                 f"Congrats on the Kick win. Please send {missing_items_text(list(platform_requirements.values()))} so I can review it properly.",
@@ -1255,7 +1363,7 @@ async def slash_reloadrules(interaction: discord.Interaction):
     try:
         load_rules_config()
         await interaction.response.send_message(
-            f"Rules reloaded successfully.\n\n{rules_status_text()}",
+            f"Rules reloaded successfully.\n\n{rules_status_text_for_server(interaction.guild.id if interaction.guild else None)}",
             ephemeral=True,
         )
     except Exception as exc:
@@ -1272,13 +1380,13 @@ async def slash_reloadrules(interaction: discord.Interaction):
 @tree.command(name="rulesstatus", description="Show currently loaded rule status (admin only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def slash_rulesstatus(interaction: discord.Interaction):
-    await interaction.response.send_message(rules_status_text(), ephemeral=True)
+    await interaction.response.send_message(rules_status_text_for_server(interaction.guild.id if interaction.guild else None), ephemeral=True)
 
 
 @tree.command(name="showrules", description="Show a quick summary of current bot rules (admin only)")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def slash_showrules(interaction: discord.Interaction):
-    await interaction.response.send_message(rules_summary_text(), ephemeral=True)
+    await interaction.response.send_message(rules_summary_text_for_server(interaction.guild.id if interaction.guild else None), ephemeral=True)
 
 
 @tree.error
@@ -1317,6 +1425,7 @@ async def on_message(message: discord.Message):
 
         async with get_lock(channel_id):
             state = refresh_state_from_history(channel_id)
+            state["guild_id"] = getattr(channel.guild, "id", None)
             auto_reply_enabled = ticket_auto_reply_enabled(channel_id)
             raw = strip_bot_mentions(message, (message.content or "").strip())
             if not raw and not message.attachments:
@@ -1524,12 +1633,8 @@ async def on_message(message: discord.Message):
                 except Exception as exc:
                     logger.exception("Structured AI failed: %s", exc)
 
-            await human_reply(
-                channel,
-                "I want to route this correctly. Is this about a giveaway payout, a bonus claim, a deposit issue, or something else?",
-                intent="support",
-                append_closing=False,
-            )
+            fallback_flow = state.get("flow") if state.get("flow") in {"gw", "lb", "raffle"} else "general"
+            await human_reply(channel, reply_template(fallback_flow, "opening"), intent="support", append_closing=False)
             sync_ticket_to_dashboard(channel_id)
     except Exception as exc:
         logger.exception("on_message failed: %s", exc)

@@ -26,11 +26,11 @@ except Exception:
 load_dotenv()
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-JWT_SECRET = os.getenv("JWT_SECRET", "replace-me-in-production")
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_ALGO = "HS256"
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "12345")
-SYNC_SECRET = os.getenv("SYNC_SECRET", "")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
+SYNC_SECRET = os.getenv("SYNC_SECRET", "").strip()
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("DASHBOARD_ALLOWED_ORIGINS", "*").split(",")
@@ -42,6 +42,21 @@ ALERTS_FILE = Path("alerts.json")
 CONVERSATIONS_DIR = Path("ticket_data/conversations")
 SERVER_MAP_PATH = Path("server_map.json")
 UTC = timezone.utc
+
+
+def require_runtime_secret(name: str, value: str, *, disallow: tuple[str, ...] = ()) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise SystemExit(f"{name} is required in environment variables")
+    if normalized in disallow:
+        raise SystemExit(f"{name} must not use an insecure default value")
+    return normalized
+
+
+JWT_SECRET = require_runtime_secret("JWT_SECRET", JWT_SECRET, disallow=("replace-me-in-production",))
+ADMIN_USERNAME = require_runtime_secret("ADMIN_USERNAME", ADMIN_USERNAME, disallow=("admin",))
+ADMIN_PASSWORD = require_runtime_secret("ADMIN_PASSWORD", ADMIN_PASSWORD, disallow=("12345",))
+SYNC_SECRET = require_runtime_secret("SYNC_SECRET", SYNC_SECRET)
 
 app = FastAPI(title="Donde Support Dashboard API", version="3.0.0")
 security = HTTPBearer()

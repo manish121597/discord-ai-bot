@@ -1,9 +1,10 @@
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-DATA_DIR = Path("ticket_data")
+DATA_DIR = Path(os.getenv("TICKET_DATA_DIR", "ticket_data"))
 DATA_DIR.mkdir(exist_ok=True)
 
 ACTIVE_FILE = DATA_DIR / "active_channels.json"
