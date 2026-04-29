@@ -102,6 +102,10 @@ You should sound polished, calm, helpful, and clear.
 Always reply in English.
 Handle tickets for payouts, bonus claims, deposits, leaderboards, raffles, and general help.
 Remember the recent conversation context and avoid repeating yourself.
+Keep replies concise and operational, not chatty.
+Do not ask for information the user already provided in the ticket.
+When proof is incomplete, say exactly what is missing and the next step in one clear line.
+When a case is already escalated, stay quiet unless the user adds useful new context.
 If the user is unclear, ask one smart clarifying question instead of guessing.
 Escalate only when human verification, payout approval, or policy-sensitive review is required.
 """.strip()
@@ -621,10 +625,12 @@ async def human_reply(
     metadata: Optional[Dict[str, Any]] = None,
     append_closing: bool = False,
 ):
-    reply = content.strip()
+    reply = polish_reply_copy(content.strip(), get_ticket_state(channel.id), intent)
+    if not reply:
+        return
     state = get_ticket_state(channel.id)
-    last_assistant = (state.get("last_assistant") or "").strip().lower()
-    if last_assistant == reply.lower():
+    last_assistant = normalized_reply_text(state.get("last_assistant") or "")
+    if last_assistant == normalized_reply_text(reply):
         return
     if append_closing and reply and len(reply) < 260:
         reply = f"{reply}\n\nLet me know if you want me to keep helping here."
@@ -645,21 +651,45 @@ async def human_reply(
     state["last_assistant"] = reply
 
 
-def build_admin_summary(user: discord.User, reason: str, username_text: str, proof: bool) -> str:
+def build_admin_summary(user: discord.User, reason: str, username_text: str, proof: bool, state: Optional[Dict[str, Any]] = None) -> str:
     mention = admin_mention(user.guild if isinstance(user, discord.Member) else None)
+    snapshot = proof_summary_snapshot(state or {})
     lines = [
         f"Admin review requested {mention}",
-        f"> reason: {reason}",
-        f"> user: {user} ({getattr(user, 'id', 'unknown')})",
+        f"> queue: {reason}",
+        f"> customer: {user} ({getattr(user, 'id', 'unknown')})",
     ]
     if username_text:
         lines.append(f"> stake username: {username_text}")
     lines.append(f"> proof attached: {'yes' if proof else 'no'}")
+    if snapshot.get("platform"):
+        lines.append(f"> platform: {snapshot['platform']}")
+    if snapshot.get("health"):
+        lines.append(f"> proof health: {snapshot['health']}")
+    if snapshot.get("progress"):
+        lines.append(f"> checklist: {snapshot['progress']}")
+    if snapshot.get("proof_type") and snapshot["proof_type"] != "unknown":
+        lines.append(f"> proof type: {snapshot['proof_type']}")
+    if snapshot.get("completed"):
+        lines.append(f"> completed proof: {', '.join(snapshot['completed'])}")
+    if snapshot.get("missing"):
+        lines.append(f"> still missing: {', '.join(snapshot['missing'])}")
+    if snapshot.get("next_step"):
+        lines.append(f"> next step: {snapshot['next_step']}")
+    if snapshot.get("summary"):
+        lines.append(f"> support summary: {snapshot['summary'][:180]}")
+    if snapshot.get("visible_text"):
+        lines.append(f"> visible text: {snapshot['visible_text'][:180]}")
+    if snapshot.get("notes"):
+        lines.append(f"> ai notes: {snapshot['notes'][:180]}")
+    if snapshot.get("confidence"):
+        lines.append(f"> proof confidence: {snapshot['confidence']}")
     return "\n".join(lines)
 
 
 def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], message: discord.Message):
     current_status = tm.load_status_map().get(str(channel.id))
+    proof_snapshot = proof_summary_snapshot(state)
     tm.save_ticket_meta(
         channel.id,
         {
@@ -679,6 +709,9 @@ def build_ticket_metadata(channel: discord.TextChannel, state: Dict[str, Any], m
             "gw_required_attachments": state.get("gw_required_attachments", 0),
             "proof_signals": state.get("proof_signals", {}),
             "checklist": state.get("checklist", {}),
+            "proof_summary": proof_snapshot,
+            "proof_health": proof_snapshot.get("health"),
+            "next_step": proof_snapshot.get("next_step"),
             "first_ever_confirmed": state.get("first_ever_confirmed"),
             "status": current_status or ("PAUSED" if channel.id in paused_channels else "OPEN"),
         },
@@ -732,18 +765,19 @@ async def escalate_ticket(
     proof: bool,
 ):
     channel_id = channel.id
+    state = get_ticket_state(channel_id)
+    summary = build_admin_summary(user, reason, username_text, proof, state=state)
     paused_channels.add(channel_id)
     tm.save_paused_channels(paused_channels)
     tm.set_ticket_status(channel_id, "ESCALATED")
 
-    summary = build_admin_summary(user, reason, username_text, proof)
     try:
         await channel.send(summary)
     except Exception:
         logger.exception("Failed to post escalation summary.")
 
-    state = get_ticket_state(channel_id)
     state["escalated"] = True
+    proof_snapshot = proof_summary_snapshot(state)
     tm.save_ticket_meta(
         channel_id,
         {
@@ -752,12 +786,15 @@ async def escalate_ticket(
             "username": state.get("username"),
             "attachments_total": state.get("attachments_total", 0),
             "last_summary": reason,
+            "proof_summary": proof_snapshot,
+            "proof_health": proof_snapshot.get("health"),
+            "next_step": proof_snapshot.get("next_step"),
         },
     )
     tm.append_message(
         channel_id,
         "assistant",
-        f"Escalated to admins for {reason}.",
+        f"I've sent this to the team for {reason}. They will review the latest proof in this ticket.",
         author="X-Boty",
         intent="support",
         metadata={"status": "ESCALATED", "admin_summary": summary},
@@ -820,6 +857,141 @@ def missing_items_text(items: list[str]) -> str:
     return f"{', '.join(items[:-1])}, and {items[-1]}"
 
 
+def normalized_reply_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", "", (text or "").lower())).strip()
+
+
+def polished_acknowledgement(state: Dict[str, Any]) -> str:
+    flow = state.get("flow")
+    checklist = checklist_status(state)
+    missing = checklist.get("missing") or []
+    if state.get("escalated"):
+        return "Understood. Your case is already with the team, and they will review the latest proof in this ticket."
+    if missing:
+        return f"Understood. Send {missing_items_text(missing)} here and I will review the next step."
+    if flow == "gw":
+        return "Understood. If you send any remaining giveaway proof here, I will keep the review moving."
+    if flow == "50bonus":
+        return "Understood. Send the remaining verification proof whenever you're ready, and I will guide the next step."
+    return "Understood. I'm here when you're ready to continue."
+
+
+def polish_reply_copy(reply: str, state: Dict[str, Any], intent: Optional[str]) -> str:
+    polished = (reply or "").strip()
+    replacements = {
+        "I can keep this moving, but I still need": "To move this forward, I still need",
+        "Please also include": "Please include",
+        "I can see an attachment, but it does not clearly look like": "I can see the attachment, but it does not clearly show",
+        "I checked the screenshot, but it does not clearly show": "I reviewed the screenshot, but it does not clearly show",
+        "I want to make sure I guide you correctly.": "I want to make sure I route this correctly.",
+        "before I escalate payout review": "before I can send this for payout review",
+        "Please send a clearer KYC/code-proof screenshot and your Stake username.": "Please send a clearer KYC/code-proof screenshot and your Stake username if it is still missing.",
+        "Congrats on the win.": "Congratulations on the win.",
+        "Please send": "Please share",
+    }
+    for source, target in replacements.items():
+        polished = polished.replace(source, target)
+
+    if polished.startswith("To move this forward, I still need") and "Once that is here" not in polished:
+        if state.get("flow") == "gw":
+            polished = f"{polished} Once that is here, I can send this for payout review."
+        elif state.get("flow") == "50bonus":
+            polished = f"{polished} Once that is here, I can review the bonus verification."
+
+    if intent == "support" and polished and not polished.endswith((".", "!", "?")):
+        polished = f"{polished}."
+
+    if state.get("flow") == "gw" and "escalate payout review" in polished.lower():
+        polished = polished.replace("escalate payout review", "send this for payout review")
+
+    if state.get("escalated") and polished.startswith("Understood. Send"):
+        polished = polished.replace("Understood. Send", "Understood. Please share", 1)
+
+    return polished
+
+
+def checklist_progress_text(state: Dict[str, Any]) -> str:
+    checklist = checklist_status(state)
+    total = len(checklist["items"])
+    completed = sum(1 for item in checklist["items"].values() if item.get("complete"))
+    if total == 0:
+        return "0/0 complete"
+    return f"{completed}/{total} complete"
+
+
+def proof_health_label(state: Dict[str, Any]) -> str:
+    flow = state.get("flow") or "general"
+    proof_state = proof_status_for_flow(state, flow)
+    checklist = proof_state["checklist"]
+    confidence = float(state.get("analysis_confidence") or 0.0)
+    attachments_total = int(state.get("attachments_total") or 0)
+    signals = state.get("proof_signals") or {}
+    any_signal = any(
+        bool(signals.get(key))
+        for key in (
+            "winner_detected",
+            "deposit_detected",
+            "kyc_detected",
+            "code_proof_detected",
+            "youtube_proof_detected",
+            "supporting_proof_detected",
+            "has_relevant_proof",
+        )
+    )
+
+    if checklist["blocked"]:
+        return "blocked"
+    if proof_state["valid"]:
+        return "valid proof"
+    if attachments_total <= 0:
+        return "awaiting proof"
+    if checklist["missing"] and (confidence >= 0.45 or any_signal):
+        return "unclear proof"
+    return "weak proof"
+
+
+def next_step_summary(state: Dict[str, Any]) -> str:
+    flow = state.get("flow") or "general"
+    proof_state = proof_status_for_flow(state, flow)
+    checklist = proof_state["checklist"]
+
+    if checklist["blocked"] and flow == "50bonus":
+        return "Needs first-ever Stake eligibility confirmation before staff review."
+    if proof_state["valid"]:
+        if flow == "gw":
+            return "Ready for payout review."
+        if flow == "deposit":
+            return "Ready for deposit review."
+        if flow == "50bonus":
+            return "Ready for bonus verification review."
+        return "Ready for staff review."
+    if checklist["missing"]:
+        return f"Still needs {missing_items_text(checklist['missing'])}."
+    if int(state.get("attachments_total") or 0) > 0:
+        return "Needs clearer proof before staff review."
+    return "Waiting for proof from the user."
+
+
+def proof_summary_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
+    checklist = checklist_status(state)
+    proof_signals = state.get("proof_signals") or {}
+    completed = [item["label"] for item in checklist["items"].values() if item.get("complete")]
+    missing = checklist["missing"]
+    return {
+        "completed": completed,
+        "missing": missing,
+        "platform": state.get("gw_platform"),
+        "confidence": round(float(state.get("analysis_confidence") or 0.0), 2),
+        "summary": str(state.get("summary") or "").strip(),
+        "visible_text": str(proof_signals.get("visible_text") or "").strip(),
+        "notes": str(state.get("proof_notes") or "").strip(),
+        "proof_type": state.get("proof_type") or "unknown",
+        "health": proof_health_label(state),
+        "progress": checklist_progress_text(state),
+        "next_step": next_step_summary(state),
+    }
+
+
 async def handle_known_flow(
     channel: discord.TextChannel,
     message: discord.Message,
@@ -830,6 +1002,10 @@ async def handle_known_flow(
     flow = state.get("flow")
     if flow in {"deposit", "50bonus"} and not flow_active(flow):
         await human_reply(channel, flow_inactive_reply(flow), intent="support", append_closing=False)
+        return True
+
+    if is_acknowledgement(raw):
+        await human_reply(channel, polished_acknowledgement(state), intent=state.get("intent"), append_closing=False)
         return True
 
     if is_acknowledgement(raw):
@@ -1314,7 +1490,7 @@ async def on_message(message: discord.Message):
                         await human_reply(
                             channel,
                             decision.get("clarifying_question")
-                            or "I want to make sure I route this correctly. Is this about a payout, a deposit issue, a giveaway win, or something else?",
+                            or "I want to route this correctly. Is this about a giveaway payout, a deposit issue, a leaderboard question, or something else?",
                             intent="support",
                             append_closing=False,
                         )
@@ -1350,7 +1526,7 @@ async def on_message(message: discord.Message):
 
             await human_reply(
                 channel,
-                "I want to make sure I guide you correctly. Is this about a payout, a bonus claim, a deposit issue, or something else?",
+                "I want to route this correctly. Is this about a giveaway payout, a bonus claim, a deposit issue, or something else?",
                 intent="support",
                 append_closing=False,
             )
