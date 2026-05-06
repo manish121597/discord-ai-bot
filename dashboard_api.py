@@ -31,6 +31,7 @@ JWT_ALGO = "HS256"
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 SYNC_SECRET = os.getenv("SYNC_SECRET", "").strip()
+ALLOW_INSECURE_CORS = os.getenv("ALLOW_INSECURE_CORS", "").strip() == "1"
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("DASHBOARD_ALLOWED_ORIGINS", "*").split(",")
@@ -57,6 +58,12 @@ JWT_SECRET = require_runtime_secret("JWT_SECRET", JWT_SECRET, disallow=("replace
 ADMIN_USERNAME = require_runtime_secret("ADMIN_USERNAME", ADMIN_USERNAME, disallow=("admin",))
 ADMIN_PASSWORD = require_runtime_secret("ADMIN_PASSWORD", ADMIN_PASSWORD, disallow=("12345",))
 SYNC_SECRET = require_runtime_secret("SYNC_SECRET", SYNC_SECRET)
+
+if not ALLOW_INSECURE_CORS and ("*" in ALLOWED_ORIGINS or not ALLOWED_ORIGINS):
+    raise SystemExit(
+        "DASHBOARD_ALLOWED_ORIGINS must be set to explicit frontend origins in production. "
+        "Set ALLOW_INSECURE_CORS=1 only for temporary local testing."
+    )
 
 app = FastAPI(title="Donde Support Dashboard API", version="3.0.0")
 security = HTTPBearer()

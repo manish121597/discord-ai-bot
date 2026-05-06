@@ -1,77 +1,85 @@
-<<<<<<< HEAD
-Admin Dashboard v1 (FastAPI + WebSocket)
-========================================
+# Dashboard Deployment Guide
 
-Prereqs:
-- Python 3.10+
-- Your bot folder with `ticket_data/conversations` and paused/active files produced by ticket_manager.
+This dashboard is the staff control surface for the Donde ticket bot.
 
-Install:
-    pip install fastapi uvicorn jinja2 aiofiles
+## Architecture
 
-Files to place:
-- dashboard.py
-- templates/index.html
-- static/style.css
+- `dashboard/` is the Next.js frontend deployed to Vercel
+- `dashboard_api.py` is the FastAPI backend deployed to Render
+- `main.py` is the Discord bot deployed separately on Render
 
-Run:
-    python dashboard.py
-or
-    uvicorn dashboard:app --reload --port 8081
+The bot pushes ticket updates to the dashboard API using:
+- `DASHBOARD_SYNC_URL`
+- `SYNC_SECRET`
 
-Open: http://localhost:8081
+## Required environment variables
 
-Auth:
-- Local simple password: set environment variable DASH_PASS to a secure password (recommended).
-  Example (Linux/macOS):
-    export DASH_PASS="mysecret"
-  Example (Windows PowerShell):
-    $env:DASH_PASS="mysecret"
+### Render: dashboard API
 
-Replace simple auth with Discord OAuth:
-- Create a Discord Application, enable OAuth2, add redirect URI (e.g. http://localhost:8081/oauth/callback)
-- Implement OAuth flow (I can add the code after you provide Client ID & Secret)
+- `JWT_SECRET`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `SYNC_SECRET`
+- `DASHBOARD_ALLOWED_ORIGINS`
 
-Notes:
-- Dashboard reads files from ticket_data/ directory (same format used by your ticket_manager).
-- Actions (pause/resume) edit paused_channels.json used by bot — so changes reflect immediately.
-- WebSocket broadcasts actions to connected admins for real-time UI.
-=======
-Admin Dashboard v1 (FastAPI + WebSocket)
-========================================
+Recommended example:
 
-Prereqs:
-- Python 3.10+
-- Your bot folder with `ticket_data/conversations` and paused/active files produced by ticket_manager.
+```text
+DASHBOARD_ALLOWED_ORIGINS=https://your-dashboard.vercel.app
+```
 
-Install:
-    pip install fastapi uvicorn jinja2 aiofiles
+For local testing only:
 
-Files to place:
-- dashboard.py
-- templates/index.html
-- static/style.css
+```text
+ALLOW_INSECURE_CORS=1
+```
 
-Run:
-    python dashboard.py
-or
-    uvicorn dashboard:app --reload --port 8081
+### Vercel: frontend
 
-Open: http://localhost:8081
+- `NEXT_PUBLIC_API_BASE_URL`
 
-Auth:
-- Local simple password: set environment variable DASH_PASS to a secure password (recommended).
-  Example (Linux/macOS):
-    export DASH_PASS="mysecret"
-  Example (Windows PowerShell):
-    $env:DASH_PASS="mysecret"
+Example:
 
-Replace simple auth with Discord OAuth:
-- Create a Discord Application, enable OAuth2, add redirect URI (e.g. http://localhost:8081/oauth/callback)
-- Implement OAuth flow (I can add the code after you provide Client ID & Secret)
+```text
+NEXT_PUBLIC_API_BASE_URL=https://your-dashboard-api.onrender.com
+```
 
-Notes:
-- Dashboard reads files from ticket_data/ directory (same format used by your ticket_manager).
-- Actions (pause/resume) edit paused_channels.json used by bot — so changes reflect immediately.
-- WebSocket broadcasts actions to connected admins for real-time UI.
->>>>>>> restore-all-files
+## Deployment order
+
+1. Deploy `dashboard_api.py` to Render
+2. Set all required API env vars
+3. Deploy `dashboard/` to Vercel
+4. Set `NEXT_PUBLIC_API_BASE_URL`
+5. Update the bot service with:
+   - `DASHBOARD_SYNC_URL`
+   - `SYNC_SECRET`
+
+## Staff workflow
+
+Main dashboard abilities:
+- review ticket queue
+- inspect proof and attachments
+- claim tickets
+- pause/resume AI
+- add internal notes
+- send admin replies
+- close tickets
+- reload rules from Discord commands
+
+## Acceptance checks
+
+Before a production handoff:
+
+1. Login succeeds with the configured admin credentials.
+2. Realtime ticket updates appear without page refresh.
+3. A new ticket appears in the queue.
+4. An escalated ticket shows proof verdict and next step.
+5. Images open correctly from the ticket detail view.
+6. Browser notifications work when enabled.
+7. Post-escalation user messages continue syncing into the dashboard.
+
+## Known limitations
+
+- The dashboard is designed for private operator use, not public customer access.
+- Background push notifications are not included.
+- Human review is still required for payout approval and policy-sensitive decisions.

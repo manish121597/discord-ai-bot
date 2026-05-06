@@ -113,6 +113,8 @@ FLOW_REPLY_TEMPLATES = {
 
 if not DISCORD_TOKEN:
     raise SystemExit("DISCORD_BOT_TOKEN missing from environment variables")
+if DASHBOARD_SYNC_URL and not SYNC_SECRET:
+    raise SystemExit("SYNC_SECRET is required when DASHBOARD_SYNC_URL is configured")
 
 SYSTEM_PROMPT = """
 You are X-Boty, the premium support assistant for Donde's Discord.

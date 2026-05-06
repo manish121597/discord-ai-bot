@@ -137,6 +137,29 @@ class BotHarnessTests(unittest.TestCase):
         self.assertIn("[valid proof]", summary)
         self.assertIn("support summary: Giveaway winner review", summary)
 
+    def test_inactive_reply_uses_server_override(self):
+        main.SERVER_RULES = {
+            "999": {
+                "flows": {
+                    "deposit": {
+                        "active": False,
+                        "inactive_reply": "Deposit offer is currently disabled on this server.",
+                    }
+                }
+            }
+        }
+        reply = main.flow_inactive_reply_for_server("deposit", 999)
+        self.assertEqual(reply, "Deposit offer is currently disabled on this server.")
+
+    def test_escalated_acknowledgement_stays_quiet_and_status_aware(self):
+        state = {
+            "flow": "gw",
+            "escalated": True,
+            "checklist": {},
+        }
+        reply = main.polished_acknowledgement(state)
+        self.assertIn("already with the team", reply)
+
 
 if __name__ == "__main__":
     unittest.main()
