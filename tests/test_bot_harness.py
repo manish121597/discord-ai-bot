@@ -160,6 +160,30 @@ class BotHarnessTests(unittest.TestCase):
         reply = main.polished_acknowledgement(state)
         self.assertIn("already with the team", reply)
 
+    def test_detect_giveaway_platform_supports_dc_shorthand(self):
+        self.assertEqual(main.detect_giveaway_platform("i win on dc"), "discord")
+        self.assertEqual(main.detect_giveaway_platform("won in disc"), "discord")
+        self.assertEqual(main.detect_giveaway_platform("i won on x"), "twitter")
+        self.assertEqual(main.detect_giveaway_platform("twt giveaway winner"), "twitter")
+
+    def test_giveaway_missing_reply_is_platform_specific_and_compact(self):
+        state = {
+            "flow": "gw",
+            "guild_id": None,
+            "gw_platform": "twitter",
+            "proof_signals": {
+                "winner_detected": True,
+            },
+        }
+        reply = main.giveaway_missing_reply(state)
+        self.assertIn("Donde code proof screenshot", reply)
+        self.assertIn("YouTube proof screenshot", reply)
+        self.assertNotIn("Discord winner proof screenshot", reply)
+
+    def test_low_signal_followup_catches_discord_style_wait_messages(self):
+        self.assertTrue(main.is_low_signal_followup("ok sir i willsend you wait for some minutes"))
+        self.assertTrue(main.is_low_signal_followup("let me give you"))
+
 
 if __name__ == "__main__":
     unittest.main()

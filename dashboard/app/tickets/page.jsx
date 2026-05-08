@@ -95,6 +95,31 @@ export default function TicketsPage() {
   }, []);
 
   useEffect(() => {
+    if (connected) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const reconcileTickets = async () => {
+      try {
+        const data = await getTickets();
+        if (!cancelled) {
+          setTickets(data.tickets || []);
+        }
+      } catch (error) {
+        console.error("Ticket reconcile failed:", error);
+      }
+    };
+
+    reconcileTickets();
+    const interval = window.setInterval(reconcileTickets, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [connected]);
+
+  useEffect(() => {
     if (!alerts.length) {
       return undefined;
     }

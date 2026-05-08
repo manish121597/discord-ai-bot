@@ -30,7 +30,7 @@ import { createRealtimeConnection } from "../../../lib/realtime";
 const QUICK_REPLIES = [
   "Payment is being checked right now.",
   "Please wait a moment while we review this.",
-  "Please send the transaction ID so we can verify it.",
+  "Please share the missing proof here so we can review it quickly.",
 ];
 
 function upsertMessage(list, incoming) {
@@ -62,7 +62,7 @@ export default function TicketDetail({ params }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const connectionRef = useRef(null);
 
-  async function loadTicket() {
+  async function loadTicket({ silent = false, scroll = true } = {}) {
     try {
       const data = await getConversation(id);
       setTicket(data);
@@ -70,13 +70,17 @@ export default function TicketDetail({ params }) {
     } catch (error) {
       console.error("Load error:", error);
     } finally {
-      setLoading(false);
-      setTimeout(() => {
-        chatRef.current?.scrollTo({
-          top: chatRef.current.scrollHeight,
-          behavior: "smooth",
-        });
-      }, 100);
+      if (!silent) {
+        setLoading(false);
+      }
+      if (scroll) {
+        setTimeout(() => {
+          chatRef.current?.scrollTo({
+            top: chatRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }, 100);
+      }
     }
   }
 
@@ -261,6 +265,18 @@ export default function TicketDetail({ params }) {
     connectionRef.current = connection;
     return () => connection.close();
   }, [id, user?.name]);
+
+  useEffect(() => {
+    if (liveState === "live") {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      loadTicket({ silent: true, scroll: false });
+    }, 4000);
+
+    return () => window.clearInterval(interval);
+  }, [id, liveState]);
 
   function emitTyping() {
     connectionRef.current?.send({

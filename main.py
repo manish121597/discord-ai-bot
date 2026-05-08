@@ -346,6 +346,44 @@ def is_acknowledgement(text: str) -> bool:
     }
 
 
+def is_low_signal_followup(text: str) -> bool:
+    lowered = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not lowered:
+        return True
+    exact_matches = {
+        "hi",
+        "hii",
+        "hiii",
+        "hello",
+        "helloo",
+        "bro",
+        "sir",
+        "ok bro",
+        "done",
+        "check",
+        "wait",
+        "one sec",
+        "one minute",
+    }
+    if lowered in exact_matches or is_acknowledgement(lowered):
+        return True
+    return any(
+        phrase in lowered
+        for phrase in (
+            "let me give you",
+            "let me send",
+            "i will send",
+            "i willsend",
+            "willsend",
+            "sending now",
+            "give me a sec",
+            "give me a minute",
+            "wait for",
+            "check this",
+        )
+    )
+
+
 def mentions_existing_proof(text: str) -> bool:
     lowered = (text or "").lower()
     return any(
@@ -529,11 +567,13 @@ def get_ticket_state(channel_id: int) -> Dict[str, Any]:
 
 def detect_giveaway_platform(text: str) -> Optional[str]:
     lowered = (text or "").lower()
-    if any(word in lowered for word in ["twitter", "x.com", "x giveaway", "tweet", "retweet"]):
+    if any(word in lowered for word in ["twitter", "x.com", "x giveaway", "tweet", "retweet", "twt", "twit"]):
         return "twitter"
-    if "discord" in lowered:
+    if re.search(r"\b(on|from|in)\s+x\b", lowered) or re.search(r"\bx\s+(gw|giveaway|proof|win)\b", lowered):
+        return "twitter"
+    if re.search(r"\b(discord|disc|dsc|dc)\b", lowered):
         return "discord"
-    if "kick" in lowered:
+    if re.search(r"\b(kick|kick\s+gw|kick\s+giveaway)\b", lowered):
         return "kick"
     return None
 
@@ -985,6 +1025,25 @@ def polished_acknowledgement(state: Dict[str, Any]) -> str:
     return "Understood. I'm here when you're ready to continue."
 
 
+def platform_display_name(platform: Optional[str]) -> str:
+    mapping = {
+        "twitter": "Twitter/X",
+        "discord": "Discord",
+        "kick": "Kick",
+    }
+    return mapping.get(platform or "", "giveaway")
+
+
+def giveaway_missing_reply(state: Dict[str, Any], *, opening: bool = False) -> str:
+    checklist = checklist_status(state)
+    missing = checklist.get("missing") or []
+    platform_name = platform_display_name(state.get("gw_platform"))
+    missing_text = missing_items_text(missing)
+    if opening:
+        return f"Congratulations on the win. Since you won on {platform_name}, please share {missing_text} here so I can review it for payout."
+    return f"To move this giveaway payout forward, I still need {missing_text}."
+
+
 def polish_reply_copy(reply: str, state: Dict[str, Any], intent: Optional[str]) -> str:
     polished = (reply or "").strip()
     replacements = {
@@ -1217,6 +1276,10 @@ async def handle_known_flow(
         proof_state = proof_status_for_flow(state, flow)
         checklist = proof_state["checklist"]
 
+        if checklist["missing"] and is_low_signal_followup(raw):
+            await human_reply(channel, polished_acknowledgement(state), intent="support", append_closing=False)
+            return True
+
         if requirements["complete"] and proof_state["valid"]:
             await escalate_ticket(
                 channel,
@@ -1228,36 +1291,36 @@ async def handle_known_flow(
             return True
 
         if platform in {"discord", "twitter"} and state.get("attachments_total", 0) == 0:
-            platform_requirements = flow_rule_for_server("gw", guild_id).get("platforms", {}).get(platform, {}).get("requirements", {})
             await human_reply(
                 channel,
-                f"Congrats on the win. Since you won on {platform.title()}, I need {missing_items_text(list(platform_requirements.values()))} before I escalate payout review.",
+                giveaway_missing_reply(state, opening=True),
                 intent="support",
             )
             return True
 
         if platform == "kick" and state.get("attachments_total", 0) == 0:
-            platform_requirements = flow_rule_for_server("gw", guild_id).get("platforms", {}).get("kick", {}).get("requirements", {})
             await human_reply(
                 channel,
-                f"Congrats on the Kick win. Please send {missing_items_text(list(platform_requirements.values()))} so I can review it properly.",
+                giveaway_missing_reply(state, opening=True),
                 intent="support",
             )
             return True
 
         if state.get("attachments_total", 0) > 0 and not state.get("proof_signals", {}).get("winner_detected"):
+            if is_low_signal_followup(raw):
+                await human_reply(channel, polished_acknowledgement(state), intent="support", append_closing=False)
+                return True
             await human_reply(
                 channel,
-                f"I can see an attachment, but it does not clearly look like the required {platform.title()} giveaway proof yet. Please send a clearer screenshot from the place you won, plus the other required proofs.",
+                f"I can see the attachment, but it does not clearly show the required {platform_display_name(platform)} winner proof yet. Please share a clearer screenshot from the place you won, plus the remaining required proof.",
                 intent="support",
             )
             return True
 
         if checklist["missing"]:
-            missing_text = missing_items_text(checklist["missing"])
             await human_reply(
                 channel,
-                f"I can keep this moving, but I still need {missing_text}. For Twitter wins, X proof, Donde code proof, and YouTube proof are compulsory. For Discord wins, Discord win proof, Donde code proof, and Level 2 / verification proof are compulsory.",
+                giveaway_missing_reply(state),
                 intent="support",
             )
             return True
